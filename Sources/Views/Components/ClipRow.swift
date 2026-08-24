@@ -16,6 +16,7 @@ struct ClipRow: View {
     @AppStorage(OCRTaskCoordinator.enableOCRKey) private var ocrEnabled = true
     @AppStorage("imageLinkPreviewEnabled") private var imageLinkPreviewEnabled = true
     @AppStorage("offlineModeEnabled") private var offlineModeEnabled = false
+    @State private var typeColors = ClipTypeColorStore.shared
     @State private var dataURIThumbnailImage: NSImage?
     /// 副行计量的成品文案；nil = 还没算完，或这条不够格显示。
     @State private var metricsText: String?
@@ -29,6 +30,18 @@ struct ClipRow: View {
                 if showThumbnail {
                     ZStack(alignment: .topLeading) {
                         thumbnail
+                            .frame(width: thumbSize, height: thumbSize)
+                            .background(
+                                typeColors.color(for: item.contentType).opacity(0.10),
+                                in: RoundedRectangle(cornerRadius: 7.5)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7.5)
+                                    .strokeBorder(
+                                        typeColors.color(for: item.contentType).opacity(0.58),
+                                        lineWidth: 0.75
+                                    )
+                            )
                             .overlay(alignment: .bottomTrailing) {
                                 if item.agentSource != nil, !compact {
                                     sourceBadge("AI", tint: PasteMemoVisualStyle.ai)

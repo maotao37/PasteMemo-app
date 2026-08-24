@@ -48,6 +48,9 @@
 "settings.update" = "アップデート";
 "settings.about" = "このアプリについて";
 "settings.appearance" = "外観";
+"settings.typeColors" = "Content Type Colors";
+"settings.typeColors.help" = "Colors identify content types in the manager and Quick Panel.";
+"settings.typeColors.reset" = "Restore Default Colors";
 "settings.theme" = "テーマ";
 "settings.theme.system" = "システム";
 "settings.theme.light" = "ライト";

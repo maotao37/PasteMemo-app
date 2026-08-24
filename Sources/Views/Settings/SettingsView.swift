@@ -354,6 +354,7 @@ struct AppearancePane: View {
     @AppStorage("appearanceMode") private var appearanceMode = "system"
     @AppStorage("menuBarIconStyle") private var menuBarIconStyle = "outline"
     @AppStorage(MenuBarLeftClickAction.storageKey) private var menuBarLeftClickActionRaw = MenuBarLeftClickAction.menu.rawValue
+    @State private var typeColors = ClipTypeColorStore.shared
 
     var body: some View {
         Form {
@@ -392,6 +393,44 @@ struct AppearancePane: View {
                     }
                 }
                 .help(L10n.tr("settings.menuBar.leftClickAction.help"))
+            }
+
+            Section {
+                ForEach(ClipContentType.colorConfigurableCases, id: \.rawValue) { type in
+                    HStack(spacing: 10) {
+                        Image(systemName: type.icon)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(typeColors.color(for: type))
+                            .frame(width: 24, height: 24)
+                            .background(typeColors.color(for: type).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        Text(type.label)
+                        Spacer()
+                        Text(typeColors.hex(for: type))
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        ColorPicker(
+                            type.label,
+                            selection: Binding(
+                                get: { typeColors.color(for: type) },
+                                set: { typeColors.setColor($0, for: type) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                    }
+                }
+                HStack {
+                    Spacer()
+                    Button {
+                        typeColors.resetAll()
+                    } label: {
+                        Label(L10n.tr("settings.typeColors.reset"), systemImage: "arrow.counterclockwise")
+                    }
+                }
+            } header: {
+                Text(L10n.tr("settings.typeColors"))
+            } footer: {
+                Text(L10n.tr("settings.typeColors.help"))
             }
         }
         .formStyle(.grouped)

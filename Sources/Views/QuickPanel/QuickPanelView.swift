@@ -62,6 +62,7 @@ struct QuickPanelView: View {
     @EnvironmentObject private var layoutState: QuickPanelLayoutState
     @Environment(\.modelContext) private var modelContext
     @State private var store = ClipItemStore()
+    @State private var typeColors = ClipTypeColorStore.shared
     @State private var searchText = ""
     @State private var groupSuggestionIndex = -1
     /// Measured natural height of the `/` suggestion list. Drives a content-fitting,
@@ -599,6 +600,7 @@ struct QuickPanelView: View {
                             ForEach(Array(groups.enumerated()), id: \.element.name) { idx, group in
                                 suggestionRow(
                                     icon: group.icon, name: group.name, count: group.count,
+                                    colorHex: group.color,
                                     isSelected: idx == groupSuggestionIndex
                                 ) {
                                     selectSuggestion(.group(name: group.name, icon: group.icon, count: group.count))
@@ -613,6 +615,7 @@ struct QuickPanelView: View {
                             ForEach(Array(types.enumerated()), id: \.element) { idx, type in
                                 suggestionRow(
                                     icon: type.icon, name: type.label, count: store.sidebarCounts.byType[type] ?? 0,
+                                    colorHex: typeColors.hex(for: type),
                                     isSelected: (offset + idx) == groupSuggestionIndex
                                 ) {
                                     selectSuggestion(.type(type))
@@ -663,8 +666,17 @@ struct QuickPanelView: View {
             .padding(.bottom, 2)
     }
 
-    private func suggestionRow(icon: String, appName: String? = nil, name: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func suggestionRow(
+        icon: String,
+        appName: String? = nil,
+        name: String,
+        count: Int,
+        colorHex: String? = nil,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let tint = Color.pasteMemo(hex: colorHex) ?? Color.accentColor
+        return Button(action: action) {
             HStack(spacing: 8) {
                 if let appName, let nsIcon = appIcon(forBundleID: nil, name: appName) {
                     Image(nsImage: nsIcon)
@@ -673,7 +685,7 @@ struct QuickPanelView: View {
                 } else {
                     Image(systemName: icon)
                         .font(.system(size: 13))
-                        .foregroundStyle(isSelected ? .white : .secondary)
+                        .foregroundStyle(isSelected ? Color.white : tint)
                         .frame(width: 18)
                 }
                 Text(name)
@@ -692,7 +704,7 @@ struct QuickPanelView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(isSelected ? tint : Color.clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -714,6 +726,7 @@ struct QuickPanelView: View {
 
     @ViewBuilder
     private func pillView(for pill: PillSelection) -> some View {
+        let tint = pillTint(for: pill)
         HStack(spacing: 5) {
             switch pill {
             case .type(let t):
@@ -738,10 +751,22 @@ struct QuickPanelView: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Color.accentColor, in: Capsule())
+        .background(tint, in: Capsule())
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
         .foregroundStyle(.white)
-        .shadow(color: Color.accentColor.opacity(0.28), radius: 3, y: 1)
+        .shadow(color: tint.opacity(0.28), radius: 3, y: 1)
+    }
+
+    private func pillTint(for pill: PillSelection) -> Color {
+        switch pill {
+        case .type(let type):
+            return typeColors.color(for: type)
+        case .group(let name):
+            let hex = store.sidebarCounts.byGroup.first { $0.name == name }?.color
+            return Color.pasteMemo(hex: hex) ?? .accentColor
+        case .app:
+            return .accentColor
+        }
     }
 
     /// 将 selectedFilter + pill 合并写回到 store，两个维度正交共存
@@ -896,7 +921,12 @@ struct QuickPanelView: View {
                     .id(QuickFilter.all)
                     if secondaryRow == .types {
                         ForEach(availableContentTypes, id: \.self) { type in
-                            badge(type.label, isActive: selectedFilter == .type(type)) {
+                            badge(
+                                type.label,
+                                icon: type.icon,
+                                colorHex: typeColors.hex(for: type),
+                                isActive: selectedFilter == .type(type)
+                            ) {
                                 selectedFilter = selectedFilter == .type(type) ? .all : .type(type)
                                 isSearchFocused = true
                             }
@@ -904,7 +934,12 @@ struct QuickPanelView: View {
                         }
                     } else {
                         ForEach(availableGroupsForTab, id: \.name) { group in
-                            badge(group.name, isActive: selectedFilter == .group(group.name)) {
+                            badge(
+                                group.name,
+                                icon: group.icon,
+                                colorHex: group.color,
+                                isActive: selectedFilter == .group(group.name)
+                            ) {
                                 selectedFilter = selectedFilter == .group(group.name) ? .all : .group(group.name)
                                 isSearchFocused = true
                             }
@@ -949,16 +984,30 @@ struct QuickPanelView: View {
         }
     }
 
-    private func badge(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 11.5, weight: isActive ? .semibold : .regular))
+    private func badge(
+        _ label: String,
+        icon: String? = nil,
+        colorHex: String? = nil,
+        isActive: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let tint = Color.pasteMemo(hex: colorHex) ?? Color.accentColor
+        return Button(action: action) {
+            HStack(spacing: 5) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(isActive ? Color.white : tint)
+                }
+                Text(label)
+                    .font(.system(size: 11.5, weight: isActive ? .semibold : .regular))
+            }
                 .padding(.horizontal, 11)
                 .padding(.vertical, 4.5)
                 .foregroundStyle(isActive ? Color.white : Color(nsColor: .secondaryLabelColor))
                 .background(
                     isActive
-                        ? AnyShapeStyle(Color.accentColor)
+                        ? AnyShapeStyle(tint)
                         : AnyShapeStyle(PasteMemoVisualStyle.subtleFill),
                     in: Capsule()
                 )

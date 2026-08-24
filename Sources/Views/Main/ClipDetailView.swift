@@ -11,6 +11,7 @@ struct ClipDetailView: View {
     @State private var editingContent = ""
     @State private var decodedLinkImageData: Data?
     @State private var ocrCardWidth: CGFloat = 0
+    @State private var typeColors = ClipTypeColorStore.shared
     @AppStorage(OCRTaskCoordinator.enableOCRKey) private var ocrEnabled = true
 
     private var isEditableType: Bool {
@@ -121,9 +122,9 @@ struct ClipDetailView: View {
             HStack(spacing: 7) {
                 Image(systemName: item.contentType.icon)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(typeColors.color(for: item.contentType))
                     .frame(width: 24, height: 24)
-                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                    .background(typeColors.color(for: item.contentType).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
 
                 Text(detailTitle)
                     .font(.system(size: 13.5, weight: .semibold))

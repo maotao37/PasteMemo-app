@@ -83,6 +83,9 @@
 "settings.update" = "Обновление";
 "settings.about" = "О программе";
 "settings.appearance" = "Внешний вид";
+"settings.typeColors" = "Content Type Colors";
+"settings.typeColors.help" = "Colors identify content types in the manager and Quick Panel.";
+"settings.typeColors.reset" = "Restore Default Colors";
 "settings.theme" = "Тема";
 "settings.theme.system" = "Системная";
 "settings.theme.light" = "Светлая";

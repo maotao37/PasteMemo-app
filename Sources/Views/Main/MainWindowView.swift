@@ -33,6 +33,7 @@ struct MainWindowView: View {
     @State private var selectedFilter: SidebarFilter = .all
     @State private var selectedItems: Set<ClipItem.ID> = []
     @State private var typeOrder: [ClipContentType] = ClipContentType.visibleCases
+    @State private var typeColors = ClipTypeColorStore.shared
     @State private var draggingType: ClipContentType?
     @State private var draggingGroup: String?
 
@@ -387,7 +388,13 @@ struct MainWindowView: View {
                 ForEach(typeOrder, id: \.self) { type in
                     let count = store.sidebarCounts.byType[type] ?? 0
                     if count > 0 {
-                        sidebarRow(type.label, icon: type.icon, badge: count, isActive: selectedFilter == .type(type)) {
+                        sidebarRow(
+                            type.label,
+                            icon: type.icon,
+                            badge: count,
+                            colorHex: typeColors.hex(for: type),
+                            isActive: selectedFilter == .type(type)
+                        ) {
                             selectedFilter = .type(type)
                         }
                         .contextMenu {
@@ -719,7 +726,7 @@ struct MainWindowView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: item.contentType.icon)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(typeColors.color(for: item.contentType))
                 Text(item.contentType.label)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
@@ -1606,6 +1613,7 @@ struct MainWindowView: View {
                 HStack(spacing: 4) {
                     Image(systemName: type.icon)
                         .font(.system(size: 10))
+                        .foregroundStyle(typeColors.color(for: type))
                     Text(type.label)
                         .font(.system(size: 11, weight: .medium))
                     Text("\(count)")
@@ -1627,7 +1635,7 @@ struct MainWindowView: View {
             HStack(spacing: 6) {
                 Image(systemName: item.contentType.icon)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(typeColors.color(for: item.contentType))
                 Text(item.contentType.label)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)

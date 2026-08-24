@@ -48,6 +48,9 @@
 "settings.update" = "업데이트";
 "settings.about" = "정보";
 "settings.appearance" = "모양";
+"settings.typeColors" = "Content Type Colors";
+"settings.typeColors.help" = "Colors identify content types in the manager and Quick Panel.";
+"settings.typeColors.reset" = "Restore Default Colors";
 "settings.theme" = "테마";
 "settings.theme.system" = "시스템";
 "settings.theme.light" = "라이트";

@@ -6,6 +6,18 @@ enum ZoomLayoutMode: Equatable {
     case actualSize
 }
 
+enum PreviewImageLayout {
+    static func fittedSize(imageSize: CGSize, viewportSize: CGSize) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0,
+              viewportSize.width > 0, viewportSize.height > 0 else { return .zero }
+        let scale = min(
+            viewportSize.width / imageSize.width,
+            viewportSize.height / imageSize.height
+        )
+        return CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+    }
+}
+
 // MARK: - Zoomable scroll view (AppKit)
 
 /// Container documentView that holds the image view centered inside itself.
@@ -115,10 +127,12 @@ struct ZoomableImageScrollView: NSViewRepresentable {
         private var lastLayoutMode: ZoomLayoutMode?
         private var pendingLayoutMode: ZoomLayoutMode?
         private var pendingImage: NSImage?
+        private var lastClipSize: NSSize = .zero
 
         func cancelPending() {
             pendingLayoutMode = nil
             pendingImage = nil
+            lastClipSize = scrollView?.contentView.bounds.size ?? .zero
         }
 
         func apply(image: NSImage, cornerRadius: CGFloat, layoutMode: ZoomLayoutMode, resetToken: UUID) {
@@ -180,25 +194,36 @@ struct ZoomableImageScrollView: NSViewRepresentable {
         }
 
         @objc func clipFrameChanged(_ notification: Notification) {
-            tryApplyLayout()
+            guard let scrollView,
+                  let image = lastImageRef,
+                  let mode = lastLayoutMode else { return }
+            let clipSize = scrollView.contentView.bounds.size
+            guard clipSize.width > 0, clipSize.height > 0,
+                  abs(clipSize.width - lastClipSize.width) > 0.5
+                    || abs(clipSize.height - lastClipSize.height) > 0.5 else {
+                tryApplyLayout()
+                return
+            }
+            scheduleLayout(mode: mode, image: image)
         }
 
         // Strategy: control display size via frame, not magnification.
-        // - .fitWidth (semantically aspect-fit): image scaled to fit entirely
-        //   within the clip view; small images stay at 1×.
+        // - .fitWidth (semantically aspect-fit): image scales up or down to fit
+        //   entirely within the clip view.
         // - .actualSize: image at its real pixel size; scrolls if larger than clip.
         // documentView is sized to max(clipSize, imageSize) so small images get
         // centered inside the clip view (no built-in NSClipView centering).
         private func applyLayout(mode: ZoomLayoutMode, clipSize: NSSize, imageSize: NSSize,
                                  scrollView: NSScrollView, documentView: CenteredImageDocumentView) {
+            lastClipSize = clipSize
+
             let scaledSize: NSSize
             switch mode {
             case .fitWidth:
-                let scale = min(1.0,
-                                min(clipSize.width / imageSize.width,
-                                    clipSize.height / imageSize.height))
-                scaledSize = NSSize(width: imageSize.width * scale,
-                                    height: imageSize.height * scale)
+                scaledSize = PreviewImageLayout.fittedSize(
+                    imageSize: imageSize,
+                    viewportSize: clipSize
+                )
             case .actualSize:
                 scaledSize = imageSize
             }

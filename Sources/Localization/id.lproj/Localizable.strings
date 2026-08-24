@@ -83,6 +83,9 @@
 "settings.update" = "Pembaruan";
 "settings.about" = "Tentang";
 "settings.appearance" = "Tampilan";
+"settings.typeColors" = "Content Type Colors";
+"settings.typeColors.help" = "Colors identify content types in the manager and Quick Panel.";
+"settings.typeColors.reset" = "Restore Default Colors";
 "settings.theme" = "Tema";
 "settings.theme.system" = "Sistem";
 "settings.theme.light" = "Terang";

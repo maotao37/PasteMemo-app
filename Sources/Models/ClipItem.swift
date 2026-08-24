@@ -38,6 +38,38 @@ enum ClipContentType: String, Codable, CaseIterable {
         .text, .code, .link, .image, .video, .audio, .document, .archive, .application, .color, .file
     ]
 
+    /// Types exposed in Appearance settings. Legacy email/phone records follow
+    /// the Text color so old data stays visually consistent without adding
+    /// obsolete categories to the settings UI.
+    static let colorConfigurableCases: [ClipContentType] = defaultVisibleCases + [.mixed]
+
+    var colorConfigurationType: ClipContentType {
+        switch self {
+        case .email, .phone: .text
+        default: self
+        }
+    }
+
+    /// Balanced semantic defaults with enough separation to remain scannable
+    /// in both light and dark appearances.
+    var defaultColorHex: String {
+        switch colorConfigurationType {
+        case .text: "#5E6AD2"
+        case .code: "#30A46C"
+        case .link: "#0A84FF"
+        case .image: "#BF5AF2"
+        case .video: "#FF375F"
+        case .audio: "#FF9F0A"
+        case .document: "#32ADE6"
+        case .archive: "#8E8E93"
+        case .application: "#64D2FF"
+        case .color: "#FFD60A"
+        case .file: "#AC8E68"
+        case .mixed: "#AF52DE"
+        case .email, .phone: "#5E6AD2"
+        }
+    }
+
     /// Content types shown in the automation rule editor's content-type picker.
     /// Grouped by semantic bucket (text → media → files) and omits legacy types
     /// (`.email`, `.phone`) plus `.mixed` (too broad to target directly).

@@ -82,6 +82,9 @@
 "settings.update" = "更新";
 "settings.about" = "關於";
 "settings.appearance" = "外觀";
+"settings.typeColors" = "內容類型顏色";
+"settings.typeColors.help" = "這些顏色用於在管理器和快速面板中識別不同內容類型。";
+"settings.typeColors.reset" = "恢復預設顏色";
 "settings.theme" = "主題";
 "settings.theme.system" = "跟隨系統";
 "settings.theme.light" = "淺色";

@@ -48,6 +48,9 @@
 "settings.update" = "Mise à jour";
 "settings.about" = "À propos";
 "settings.appearance" = "Apparence";
+"settings.typeColors" = "Content Type Colors";
+"settings.typeColors.help" = "Colors identify content types in the manager and Quick Panel.";
+"settings.typeColors.reset" = "Restore Default Colors";
 "settings.theme" = "Thème";
 "settings.theme.system" = "Système";
 "settings.theme.light" = "Clair";

@@ -1,5 +1,53 @@
 import SwiftUI
 
+@MainActor
+@Observable
+final class ClipTypeColorStore {
+    static let shared = ClipTypeColorStore()
+    static let storageKey = "clipTypeColorOverrides"
+
+    private let defaults: UserDefaults
+    private var overrides: [String: String]
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.overrides = defaults.dictionary(forKey: Self.storageKey) as? [String: String] ?? [:]
+    }
+
+    func hex(for type: ClipContentType) -> String {
+        let canonical = type.colorConfigurationType
+        return Self.normalizedHex(overrides[canonical.rawValue]) ?? canonical.defaultColorHex
+    }
+
+    func color(for type: ClipContentType) -> Color {
+        Color.pasteMemo(hex: hex(for: type)) ?? .secondary
+    }
+
+    func setColor(_ color: Color, for type: ClipContentType) {
+        guard let hex = color.pasteMemoHex else { return }
+        setHex(hex, for: type)
+    }
+
+    func setHex(_ hex: String, for type: ClipContentType) {
+        guard let hex = Self.normalizedHex(hex) else { return }
+        let canonical = type.colorConfigurationType
+        overrides[canonical.rawValue] = hex
+        defaults.set(overrides, forKey: Self.storageKey)
+    }
+
+    func resetAll() {
+        overrides.removeAll()
+        defaults.removeObject(forKey: Self.storageKey)
+    }
+
+    nonisolated static func normalizedHex(_ value: String?) -> String? {
+        guard let raw = value?.trimmingCharacters(in: CharacterSet.alphanumerics.inverted),
+              raw.count == 6,
+              UInt64(raw, radix: 16) != nil else { return nil }
+        return "#" + raw.uppercased()
+    }
+}
+
 /// Shared semantic palette for operational states. Window chrome and content
 /// surfaces stay neutral; color is reserved for selection and meaning.
 enum PasteMemoVisualStyle {
@@ -25,5 +73,14 @@ extension Color {
             green: Double((value >> 8) & 0xFF) / 255,
             blue: Double(value & 0xFF) / 255
         )
+    }
+
+    @MainActor
+    var pasteMemoHex: String? {
+        guard let color = NSColor(self).usingColorSpace(.sRGB) else { return nil }
+        let red = Int((color.redComponent * 255).rounded())
+        let green = Int((color.greenComponent * 255).rounded())
+        let blue = Int((color.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 }
