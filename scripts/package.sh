@@ -44,11 +44,16 @@ STAGING_DIR="$DIST_DIR/.dmg-staging-${ARCH}"
 
 printf '[package] building %s %s (%s)\n' "$APP_NAME" "$VERSION" "$ARCH"
 
+# Swift 6.3/Xcode 26 can crash in the CopyPropagation pass at the default
+# release optimization level. Keep the packaging build on the stable size
+# optimization used by the signed CI pipeline.
+SWIFT_OPT_FLAGS=(-Xswiftc -Osize)
+
 # 根据不同架构构建 SwiftPM 项目
-swift build -c "$CONFIGURATION" --arch "$ARCH"
+swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}"
 
 # 动态获取当前架构输出目录
-BUILD_DIR="$(swift build -c "$CONFIGURATION" --arch "$ARCH" --show-bin-path)"
+BUILD_DIR="$(swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}" --show-bin-path)"
 PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
 
 if [[ ! -x "$PRODUCT_BINARY" ]]; then
@@ -68,7 +73,7 @@ cp "$PRODUCT_BINARY" "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 
 # 构建并复制 MCP Proxy 命令行工具（如果存在）
-swift build -c "$CONFIGURATION" --arch "$ARCH" --product pastememo-mcp 2>/dev/null || true
+swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}" --product pastememo-mcp 2>/dev/null || true
 if [[ -f "$BUILD_DIR/pastememo-mcp" ]]; then
   cp "$BUILD_DIR/pastememo-mcp" "$APP_DIR/Contents/MacOS/pastememo-mcp"
   chmod +x "$APP_DIR/Contents/MacOS/pastememo-mcp"

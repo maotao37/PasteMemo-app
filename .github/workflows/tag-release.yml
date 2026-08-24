@@ -20,19 +20,20 @@ permissions:
 jobs:
   build-dmgs:
     name: 构建 DMG (${{ matrix.arch }})
-    runs-on: macos-15
+    # The app uses Vision APIs introduced in the macOS 26 SDK.
+    runs-on: macos-26
     strategy:
       matrix:
         arch: [arm64, x86_64]
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: 配置 Xcode 16 与 Swift 6 环境
+      - name: 验证 Xcode 26 与 Swift 6 环境
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+          xcodebuild -version
           swift --version
 
       - name: 解析版本号
@@ -76,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 获取 Tag 信息
         id: release_info
