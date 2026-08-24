@@ -321,30 +321,42 @@ struct CommandPaletteContent: View {
         let ruleDigit = digitForAction(at: index)
         return HStack(spacing: 8) {
             Image(systemName: action.icon)
-                .font(.system(size: 11))
+                .font(.system(size: 11.5, weight: .medium))
                 .frame(width: 16)
                 .foregroundStyle(
-                    action.isDestructive ? .red : (isRuleRow ? .purple : .secondary)
+                    action.isDestructive ? Color.red : (isRuleRow ? Color.purple : (isSelected ? Color.accentColor : Color.secondary))
                 )
             Text(displayLabel(for: action))
-                .font(.system(size: 12))
-                .foregroundStyle(action.isDestructive ? .red : .primary)
+                .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                .foregroundStyle(action.isDestructive ? Color.red : (isSelected ? Color.primary : Color.primary.opacity(0.88)))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer()
             if let key = action.shortcutKey ?? ruleDigit {
                 Text(key)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.85))
                     .frame(width: 18, height: 18)
-                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                    .background(
+                        RoundedRectangle(cornerRadius: 4.5)
+                            .fill(Color.primary.opacity(isSelected ? 0.08 : 0.05))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4.5)
+                                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                            )
+                            .shadow(color: .black.opacity(0.03), radius: 0.5, y: 0.5)
+                    )
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.vertical, 5.5)
         .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : .clear)
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(isSelected ? Color.accentColor.opacity(0.24) : Color.clear, lineWidth: 0.5)
+                )
         )
         .contentShape(Rectangle())
     }

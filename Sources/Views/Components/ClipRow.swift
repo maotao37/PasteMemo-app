@@ -32,40 +32,51 @@ struct ClipRow: View {
                             .overlay(alignment: .bottomTrailing) {
                                 if item.agentSource != nil, !compact {
                                     Text("AI")
-                                        .font(.system(size: 8, weight: .semibold, design: .rounded))
+                                        .font(.system(size: 8, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white)
-                                        .padding(.horizontal, 4)
+                                        .padding(.horizontal, 4.5)
                                         .padding(.vertical, 1)
                                         .background(
-                                            Color(red: 0.55, green: 0.30, blue: 0.90),
+                                            LinearGradient(
+                                                colors: [Color(red: 0.62, green: 0.35, blue: 0.95), Color(red: 0.48, green: 0.22, blue: 0.85)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
                                             in: Capsule()
                                         )
+                                        .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.5)
                                 } else if item.smsMessageText != nil, !compact {
-                                    // 短信验证码角标(同 AI 角标的样式,文字胶囊比图标轻)
+                                    // 短信验证码角标：清新翠绿渐变胶囊
                                     Text("OTP")
-                                        .font(.system(size: 8, weight: .semibold, design: .rounded))
+                                        .font(.system(size: 8, weight: .bold, design: .rounded))
                                         .foregroundStyle(.white)
-                                        .padding(.horizontal, 4)
+                                        .padding(.horizontal, 4.5)
                                         .padding(.vertical, 1)
                                         .background(
-                                            Color(red: 0.18, green: 0.60, blue: 0.38),
+                                            LinearGradient(
+                                                colors: [Color(red: 0.22, green: 0.68, blue: 0.42), Color(red: 0.14, green: 0.54, blue: 0.32)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            ),
                                             in: Capsule()
                                         )
+                                        .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.5)
                                 }
                             }
                         if item.isPinned {
                             Image(systemName: "pin.fill")
                                 .font(.system(size: 9))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.orange)
+                                .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
                                 .offset(x: -3, y: -3)
                         }
                     }
                 }
 
                 if compact {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 5) {
                         Text(displayTitle)
-                            .font(.system(size: 14))
+                            .font(.system(size: 13, weight: .regular))
                             .lineLimit(1)
 
                         if ocrEnabled, item.matchesOCROnly(searchText: searchText) {
@@ -75,10 +86,11 @@ struct ClipRow: View {
                         Spacer(minLength: 0)
                     }
                 } else {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 4) {
+                    VStack(alignment: .leading, spacing: 3.5) {
+                        HStack(spacing: 5) {
                             Text(displayTitle)
-                                .font(.system(size: 13))
+                                .font(.system(size: 13, weight: .regular))
+                                .foregroundStyle(Color.primary)
                                 .lineLimit(1)
 
                             if ocrEnabled, item.matchesOCROnly(searchText: searchText) {
@@ -88,18 +100,18 @@ struct ClipRow: View {
                             Spacer()
                         }
 
-                        HStack(spacing: 4) {
+                        HStack(spacing: 5) {
                             Text(formatTimeAgo(item.lastUsedAt))
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary.opacity(0.85))
                                 .layoutPriority(1)
                             if let metricsText {
                                 Text("·")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.quaternary)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.tertiary)
                                 Text(metricsText)
                                     .font(.system(size: 11))
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary.opacity(0.85))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                             }
@@ -110,7 +122,7 @@ struct ClipRow: View {
                                     .foregroundStyle(.tertiary)
                                 Text(groupName)
                                     .font(.system(size: 11))
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary.opacity(0.85))
                             }
                         }
                     }
@@ -216,7 +228,11 @@ struct ClipRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: thumbSize, height: thumbSize)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 7.5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7.5)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
                 .overlay(alignment: .bottomTrailing) {
                     // 多图文件条目：右下角与其他多文件条目一致放数量角标；
                     // 格式角标只描述第一张，对多文件条目反而误导，让位。
@@ -237,7 +253,11 @@ struct ClipRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: thumbSize, height: thumbSize)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 7.5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7.5)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
                 .overlay(alignment: .bottomTrailing) { imageFormatBadge }
         } else if item.contentType == .link, imageLinkPreviewEnabled,
                   DataImageURI.isBase64DataImageURI(item.content) {
@@ -250,7 +270,11 @@ struct ClipRow: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: thumbSize, height: thumbSize)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .clipShape(RoundedRectangle(cornerRadius: 7.5))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7.5)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        )
                         .overlay(alignment: .bottomTrailing) { imageFormatBadge }
                 } else {
                     linkFaviconThumbnail
@@ -281,7 +305,11 @@ struct ClipRow: View {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                             .frame(width: thumbSize, height: thumbSize)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .clipShape(RoundedRectangle(cornerRadius: 7.5))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7.5)
+                                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                            )
                             .overlay(alignment: .bottomTrailing) { imageFormatBadge }
                     default:
                         linkFaviconThumbnail
@@ -299,7 +327,7 @@ struct ClipRow: View {
                 .overlay(
                     Circle().strokeBorder(Color.primary.opacity(0.15), lineWidth: 1)
                 )
-                .shadow(color: Color(nsColor: parsed.nsColor).opacity(0.3), radius: 3, y: 1)
+                .shadow(color: Color(nsColor: parsed.nsColor).opacity(0.35), radius: 4, y: 1.5)
                 .frame(width: thumbSize, height: thumbSize)
         } else if item.contentType.isFileBased, item.contentType != .image, !item.content.contains("\n") {
             let path = item.content.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -333,7 +361,11 @@ struct ClipRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: thumbSize, height: thumbSize)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 7.5))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7.5)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
                 .overlay(alignment: .bottomTrailing) { imageFormatBadge }
         } else if item.contentType == .code {
             LanguageIcon(language: item.resolvedCodeLanguage ?? .unknown, size: thumbSize)
@@ -343,8 +375,12 @@ struct ClipRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: thumbSize, height: thumbSize)
                 .background(
-                    RoundedRectangle(cornerRadius: 7)
+                    RoundedRectangle(cornerRadius: 7.5)
                         .fill(Color.primary.opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7.5)
+                                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                        )
                 )
         } else {
             fileIconThumb(thumbnailIcon)
@@ -355,11 +391,12 @@ struct ClipRow: View {
     private var imageFormatBadge: some View {
         if !compact, let label = resolvedImageFormatLabel {
             Text(label)
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .font(.system(size: 8, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 4)
                 .padding(.vertical, 1)
-                .background(.black.opacity(0.55), in: Capsule())
+                .background(Color.black.opacity(0.65), in: Capsule())
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
         }
     }
 
@@ -520,8 +557,12 @@ struct ClipRow: View {
                 .foregroundStyle(.orange)
                 .frame(width: thumbSize, height: thumbSize)
                 .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.orange.opacity(0.1))
+                    RoundedRectangle(cornerRadius: 7.5)
+                        .fill(Color.orange.opacity(0.12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7.5)
+                                .strokeBorder(Color.orange.opacity(0.2), lineWidth: 0.5)
+                        )
                 )
             if let icon = appIcon(forBundleID: item.sourceAppBundleID, name: item.sourceApp) {
                 Image(nsImage: icon)
@@ -534,11 +575,12 @@ struct ClipRow: View {
 
     private var ocrBadge: some View {
         Text("OCR")
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .font(.system(size: 9, weight: .bold, design: .rounded))
             .foregroundStyle(.orange)
             .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(Color.orange.opacity(0.12), in: Capsule())
+            .padding(.vertical, 1.5)
+            .background(Color.orange.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.orange.opacity(0.28), lineWidth: 0.5))
     }
 
     private var thumbnailIcon: FileIconInfo {
@@ -571,15 +613,16 @@ struct ClipRow: View {
             && item.content != "[Image]"
     }
 
-    /// 多文件条目的数量角标（文件图标缩略图与多图缩略图共用同一款）
     private var multiFileCountBadge: some View {
         let count = item.content.components(separatedBy: "\n").filter { !$0.isEmpty }.count
         return Text("\(count)")
             .font(.system(size: 9, weight: .bold, design: .rounded))
             .foregroundStyle(.white)
-            .padding(.horizontal, 3)
+            .padding(.horizontal, 4)
             .padding(.vertical, 1)
             .background(Color.accentColor, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
     }
-
 }
+

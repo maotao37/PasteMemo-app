@@ -344,37 +344,37 @@ struct QuickPreviewPane: View {
     }
 
     private func ocrSnippetCard(text: String) -> some View {
-        return VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text("OCR")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.12), in: Capsule())
+                    .background(Color.orange.opacity(0.14), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.orange.opacity(0.28), lineWidth: 0.5))
                 Text(L10n.tr("quick.ocrMatch"))
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button(L10n.tr("detail.ocr.copy")) {
+                Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                     ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10))
+                        Text(L10n.tr("detail.ocr.copy"))
+                            .font(.system(size: 11, weight: .medium))
+                    }
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.top, 10)
 
-            // TextKit on purpose (not SwiftUI Text/ScrollView): OCR text runs
-            // thousands of characters, and SwiftUI re-measures the whole string
-            // on every layout pass of the pane — NativeTextView lays out lazily
-            // and keeps that cost out of the SwiftUI layout graph entirely.
-            // Height: sized to the text (measured once per text+width, cached)
-            // so short results don't leave a mostly-blank card; capped at the
-            // card's original 120pt with internal scrolling beyond that, so it
-            // never crowds out the image preview above.
             NativeTextView(
                 text: text,
                 allowRichRender: false,
@@ -392,12 +392,16 @@ struct QuickPreviewPane: View {
             } action: { width in
                 ocrCardWidth = width
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.bottom, 10)
         }
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.05))
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.primary.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -565,16 +569,20 @@ struct QuickPreviewPane: View {
                         .interpolation(.high)
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 28, height: 28)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
                 } else {
                     Image(systemName: "globe")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
-                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5))
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         quickMetadataBadge(Self.displayHost(for: url))
                         if let scheme = url.scheme?.uppercased(), !scheme.isEmpty {
                             quickMetadataBadge(scheme)
@@ -591,7 +599,7 @@ struct QuickPreviewPane: View {
                                     .aspectRatio(contentMode: .fit)
                                     .frame(width: 14, height: 14)
                                 Text(L10n.tr("detail.openInBrowser"))
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 11.5, weight: .medium))
                             }
                         }
                         .buttonStyle(.bordered)
@@ -617,38 +625,55 @@ struct QuickPreviewPane: View {
     }
 
     private func quickMetadataBadge(_ text: String) -> some View {
-        // Bump lowercase text slightly so its x-height roughly matches
-        // cap-height of uppercase siblings (e.g. "HTTPS" badge).
         let hasLowercase = text.contains(where: { $0.isLowercase })
         return Text(text)
-            .font(.system(size: hasLowercase ? 12 : 10, weight: .medium, design: .rounded))
+            .font(.system(size: hasLowercase ? 11.5 : 10, weight: .semibold, design: .rounded))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color.primary.opacity(0.06), in: Capsule())
+            .padding(.vertical, 2.5)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.primary.opacity(0.05))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                    )
+            )
     }
 
     @ViewBuilder
     private func linkStaticPreview(url: URL) -> some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             if let img = validFavicon(minSize: 32) {
                 Image(nsImage: img)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 48, height: 48)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    )
+                    .shadow(color: .black.opacity(0.1), radius: 8, y: 3)
             } else {
                 Image(systemName: "globe")
-                    .font(.system(size: 36, weight: .light))
+                    .font(.system(size: 32, weight: .light))
                     .foregroundStyle(.secondary)
-                    .frame(width: 48, height: 48)
-                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+                    .frame(width: 52, height: 52)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.primary.opacity(0.05))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                            )
+                    )
             }
 
             if let title = item.linkTitle, !title.isEmpty {
                 Text(title)
-                    .font(.system(size: 17, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
             }
@@ -661,7 +686,7 @@ struct QuickPreviewPane: View {
             }
 
             Text(url.absoluteString)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(Color.accentColor)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
@@ -683,19 +708,27 @@ struct QuickPreviewPane: View {
                     Image(nsImage: defaultBrowserIcon)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 16, height: 16)
+                        .frame(width: 15, height: 15)
                     Text(L10n.tr("detail.openInBrowser"))
-                        .font(.system(size: 12))
-                    // ⌘O opens the link in the browser — mirror the file preview hint.
+                        .font(.system(size: 12, weight: .medium))
                     Text("⌘O")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
                         .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
-                        .padding(.leading, 2)
                 }
-                .foregroundStyle(isLinkButtonHovered ? .primary : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6.5)
+                        .fill(isLinkButtonHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6.5)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        )
+                )
+                .foregroundStyle(isLinkButtonHovered ? Color.primary : Color.secondary)
             }
             .buttonStyle(.plain)
             .onHover { isLinkButtonHovered = $0 }

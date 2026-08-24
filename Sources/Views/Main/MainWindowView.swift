@@ -458,7 +458,7 @@ struct MainWindowView: View {
     }
 
     private func appSidebarRow(_ appName: String, badge: Int = 0, isActive: Bool, action: @escaping () -> Void) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             if let icon = appIcon(forBundleID: bundleIDForApp(appName), name: appName) {
                 Image(nsImage: icon)
                     .renderingMode(.original)
@@ -466,22 +466,24 @@ struct MainWindowView: View {
                     .frame(width: 16, height: 16)
             } else {
                 Image(systemName: "app")
-                    .foregroundStyle(isActive ? .white : .secondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(isActive ? Color.white : Color.secondary)
                     .frame(width: 16)
             }
             Text(appName)
-                .foregroundStyle(isActive ? .white : .primary)
+                .font(.system(size: 13, weight: isActive ? .medium : .regular))
+                .foregroundStyle(isActive ? Color.white : Color.primary)
             Spacer()
             if badge > 0 {
                 Text("\(badge)")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded).monospacedDigit())
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .foregroundStyle(isActive ? .white : .secondary)
+                    .padding(.vertical, 1.5)
+                    .foregroundStyle(isActive ? Color.white : Color.secondary)
                     .background(
                         isActive
-                            ? Color.white.opacity(0.25)
-                            : Color.primary.opacity(0.08),
+                            ? Color.white.opacity(0.24)
+                            : Color.primary.opacity(0.06),
                         in: Capsule()
                     )
             }
@@ -492,36 +494,38 @@ struct MainWindowView: View {
         .onTapGesture(perform: action)
         .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
         .listRowBackground(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 6.5)
                 .fill(isActive ? Color.accentColor : Color.clear)
                 .padding(.horizontal, 4)
         )
     }
 
     private func sidebarRow(_ title: String, icon: String, badge: Int = 0, showsPreservedBadge: Bool = false, isActive: Bool, action: @escaping () -> Void) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Image(systemName: icon)
-                .foregroundStyle(isActive ? .white : .secondary)
+                .font(.system(size: 13))
+                .foregroundStyle(isActive ? Color.white : Color.secondary)
                 .frame(width: 18)
             Text(title)
-                .foregroundStyle(isActive ? .white : .primary)
+                .font(.system(size: 13, weight: isActive ? .medium : .regular))
+                .foregroundStyle(isActive ? Color.white : Color.primary)
             if showsPreservedBadge {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(isActive ? .white.opacity(0.95) : .secondary)
+                    .foregroundStyle(isActive ? Color.white.opacity(0.95) : Color.secondary)
                     .help(L10n.tr("group.preserveItems.badge"))
             }
             Spacer()
             if badge > 0 {
                 Text("\(badge)")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded).monospacedDigit())
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .foregroundStyle(isActive ? .white : .secondary)
+                    .padding(.vertical, 1.5)
+                    .foregroundStyle(isActive ? Color.white : Color.secondary)
                     .background(
                         isActive
-                            ? Color.white.opacity(0.25)
-                            : Color.primary.opacity(0.08),
+                            ? Color.white.opacity(0.24)
+                            : Color.primary.opacity(0.06),
                         in: Capsule()
                     )
             }
@@ -532,7 +536,7 @@ struct MainWindowView: View {
         .onTapGesture(perform: action)
         .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
         .listRowBackground(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 6.5)
                 .fill(isActive ? Color.accentColor : Color.clear)
                 .padding(.horizontal, 4)
         )
@@ -637,15 +641,19 @@ struct MainWindowView: View {
             groupIcon: store.sidebarCounts.byGroup.first { $0.name == item.groupName }?.icon,
             searchText: searchText
         )
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
             .padding(.vertical, 3)
             .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(isSelected ? Color.primary.opacity(0.12) : Color.clear)
-                    .padding(.horizontal, 8)
+                RoundedRectangle(cornerRadius: 7.5)
+                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 7.5)
+                            .strokeBorder(isSelected ? Color.accentColor.opacity(0.26) : Color.clear, lineWidth: 0.75)
+                    )
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 1)
             )
-            .padding(.trailing, 4)
+            .padding(.trailing, 2)
     }
 
     @ViewBuilder

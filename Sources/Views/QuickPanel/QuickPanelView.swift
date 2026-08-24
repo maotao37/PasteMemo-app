@@ -713,32 +713,34 @@ struct QuickPanelView: View {
 
     @ViewBuilder
     private func pillView(for pill: PillSelection) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             switch pill {
             case .type(let t):
-                Image(systemName: t.icon).font(.system(size: 10))
-                Text(t.label).font(.system(size: 12))
+                Image(systemName: t.icon).font(.system(size: 10, weight: .semibold))
+                Text(t.label).font(.system(size: 12, weight: .medium))
             case .group(let name):
                 let icon = store.sidebarCounts.byGroup.first { $0.name == name }?.icon ?? "folder"
-                Image(systemName: icon).font(.system(size: 10))
-                Text(name).font(.system(size: 12))
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+                Text(name).font(.system(size: 12, weight: .medium))
             case .app(let name):
                 if let nsIcon = appIcon(forBundleID: nil, name: name) {
                     Image(nsImage: nsIcon).resizable().frame(width: 12, height: 12)
                 } else {
-                    Image(systemName: "app.dashed").font(.system(size: 10))
+                    Image(systemName: "app.dashed").font(.system(size: 10, weight: .semibold))
                 }
-                Text(name).font(.system(size: 12))
+                Text(name).font(.system(size: 12, weight: .medium))
             }
             Button { self.pill = nil } label: {
                 Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(Color.accentColor, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
         .foregroundStyle(.white)
+        .shadow(color: Color.accentColor.opacity(0.28), radius: 3, y: 1)
     }
 
     /// 将 selectedFilter + pill 合并写回到 store，两个维度正交共存
@@ -794,8 +796,8 @@ struct QuickPanelView: View {
     private var searchBar: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 18))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(isSearchFocused ? Color.accentColor : Color.secondary.opacity(0.7))
                 .frame(width: 22, height: 22)
 
             if let pill {
@@ -805,7 +807,7 @@ struct QuickPanelView: View {
 
             TextField(L10n.tr("quick.search"), text: $searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 16))
+                .font(.system(size: 15, weight: .regular))
                 .focused($isSearchFocused)
 
             if !searchText.isEmpty || pill != nil {
@@ -816,7 +818,7 @@ struct QuickPanelView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(.quaternary)
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -826,14 +828,20 @@ struct QuickPanelView: View {
                 QuickPanelWindowController.shared.isPinned = isPanelPinned
             } label: {
                 Image(systemName: isPanelPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(
-                        isPanelPinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary)
+                        isPanelPinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary)
                     )
                     .frame(width: 28, height: 24)
                     .background(
-                        isPanelPinned ? AnyShapeStyle(Color.accentColor.opacity(0.15)) : AnyShapeStyle(Color.clear),
-                        in: RoundedRectangle(cornerRadius: 5)
+                        isPanelPinned
+                            ? AnyShapeStyle(Color.accentColor.opacity(0.16))
+                            : AnyShapeStyle(Color.primary.opacity(0.04)),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(isPanelPinned ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06), lineWidth: 0.5)
                     )
                     .contentShape(Rectangle())
             }
@@ -841,18 +849,25 @@ struct QuickPanelView: View {
             .help((isPanelPinned ? L10n.tr("quickPanel.unpin") : L10n.tr("quickPanel.pin")) + " (⌘T)")
 
             Text("\(store.totalCount)")
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.secondary)
                 .frame(minWidth: 28, minHeight: 24)
-                .padding(.horizontal, 6)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 5))
+                .padding(.horizontal, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                        )
+                )
         }
         // 固定一个比最高 pill 略大的行高，pill 出现/消失时 HStack 不会撑高，
         // 搜索图标、下方 tabBar 都不会上下跳动
-        .frame(height: 28)
+        .frame(height: 30)
         .padding(.horizontal, 20)
-        .padding(.top, 22)
-        .padding(.bottom, 14)
+        .padding(.top, 20)
+        .padding(.bottom, 12)
         // 避免 pill 出现/消失时输入框位置被 SwiftUI 默认动画插值造成的"抖动"
         .animation(nil, value: selectedFilter)
         .animation(nil, value: pill)
@@ -924,14 +939,30 @@ struct QuickPanelView: View {
     private func badge(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 11, weight: isActive ? .medium : .regular))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .foregroundStyle(isActive ? .white : Color(nsColor: .secondaryLabelColor))
+                .font(.system(size: 11.5, weight: isActive ? .semibold : .regular))
+                .padding(.horizontal, 11)
+                .padding(.vertical, 4.5)
+                .foregroundStyle(isActive ? Color.white : Color(nsColor: .secondaryLabelColor))
                 .background(
-                    isActive ? Color.accentColor : Color.primary.opacity(0.06),
+                    isActive
+                        ? AnyShapeStyle(
+                            LinearGradient(
+                                colors: [Color.accentColor, Color.accentColor.opacity(0.88)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        : AnyShapeStyle(Color.primary.opacity(0.05)),
                     in: Capsule()
                 )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            isActive ? Color.white.opacity(0.25) : Color.primary.opacity(0.04),
+                            lineWidth: 0.5
+                        )
+                )
+                .shadow(color: isActive ? Color.accentColor.opacity(0.28) : .clear, radius: 3, y: 1)
         }
         .buttonStyle(.plain)
     }
@@ -1051,14 +1082,19 @@ struct QuickPanelView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(.quaternary)
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.035))
+                    .frame(width: 64, height: 64)
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(.tertiary)
+            }
             Text(L10n.tr("empty.noResults"))
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1267,16 +1303,24 @@ struct QuickPanelView: View {
     }
 
     private func footerKey(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 4.5) {
             Text(key)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                .padding(.horizontal, 5.5)
+                .padding(.vertical, 2.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 4.5)
+                        .fill(Color.primary.opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4.5)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.03), radius: 1, y: 0.5)
+                )
             Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary.opacity(0.85))
                 .lineLimit(1)
         }
         .fixedSize(horizontal: true, vertical: false)

@@ -1,11 +1,14 @@
 import SwiftUI
 
+/// 高级毛玻璃卡片容器，提供原生自适应材质与反光微描边
 struct GlassCard<Content: View>: View {
     var padding: CGFloat = 16
+    var cornerRadius: CGFloat = 12
     let content: Content
 
-    init(padding: CGFloat = 16, @ViewBuilder content: () -> Content) {
+    init(padding: CGFloat = 16, cornerRadius: CGFloat = 12, @ViewBuilder content: () -> Content) {
         self.padding = padding
+        self.cornerRadius = cornerRadius
         self.content = content()
     }
 
@@ -14,18 +17,45 @@ struct GlassCard<Content: View>: View {
             .padding(padding)
             .background {
                 if #available(macOS 26.0, *) {
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.ultraThinMaterial)
-                        .glassEffect(.regular, in: .rect(cornerRadius: 12))
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(.background)
-                        .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
+                        .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(.separator, lineWidth: 0.5)
+                            RoundedRectangle(cornerRadius: cornerRadius)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.22),
+                                            Color.white.opacity(0.06),
+                                            Color.primary.opacity(0.04)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 0.75
+                                )
+                        )
+                        .shadow(color: .black.opacity(0.04), radius: 10, y: 3)
+                } else {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .fill(.background)
+                        .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: cornerRadius)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.25),
+                                            Color.primary.opacity(0.08)
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 0.75
+                                )
                         )
                 }
             }
     }
 }
+

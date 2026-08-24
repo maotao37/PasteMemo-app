@@ -15,7 +15,7 @@ struct UnifiedToastView: View {
         HStack(spacing: 10) {
             if let iconName = descriptor.icon.systemImageName {
                 Image(systemName: iconName)
-                    .font(.system(size: 14))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(descriptor.icon.tint(isDark: isDark))
             }
             Text(descriptor.message)
@@ -26,18 +26,30 @@ struct UnifiedToastView: View {
                 actionButton(action)
             }
         }
-        // Match the pill height of the action-button variant so plain
-        // (no-action) toasts don't look visibly shorter.
-        .frame(minHeight: 22)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        // 统一不同内容下 Toast 胶囊的高度与内边距，保持视觉稳定性
+        .frame(minHeight: 24)
+        .padding(.horizontal, 15)
+        .padding(.vertical, 8.5)
         .background(
             Capsule()
                 .fill(panelFill)
-                .shadow(color: shadowColor, radius: 18, y: 6)
-                .shadow(color: shadowColor.opacity(0.5), radius: 4, y: 1)
+                .shadow(color: shadowColor, radius: 16, y: 6)
+                .shadow(color: shadowColor.opacity(0.4), radius: 4, y: 1)
         )
-        .overlay(Capsule().stroke(panelStroke, lineWidth: 0.5))
+        .overlay(
+            Capsule()
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            isDark ? Color.white.opacity(0.18) : Color.white.opacity(0.8),
+                            isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.06)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
+        )
         .fixedSize()
     }
 

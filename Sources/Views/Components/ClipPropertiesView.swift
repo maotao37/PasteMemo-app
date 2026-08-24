@@ -470,20 +470,20 @@ struct ClipPropertiesView: View {
     private func propRow(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
-                .font(.system(size: fontSize))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: fontSize, weight: .regular))
+                .foregroundStyle(.secondary.opacity(0.8))
                 .lineLimit(1)
             Spacer()
             Text(value)
-                .font(.system(size: fontSize))
-                .foregroundStyle(.secondary)
+                .font(.system(size: fontSize, weight: .medium).monospacedDigit())
+                .foregroundStyle(.primary.opacity(0.85))
                 .lineLimit(1)
         }
-        .padding(.vertical, fontSize <= 11 ? 3 : 4)
+        .padding(.vertical, fontSize <= 11 ? 2.5 : 3.5)
     }
 
     private var propDivider: some View {
-        Divider().opacity(0.15)
+        Divider().opacity(0.12)
     }
 
     private func formatDate(_ date: Date) -> String {

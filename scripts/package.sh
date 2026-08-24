@@ -124,6 +124,9 @@ EOF
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   printf '[package] codesigning app bundle\n'
   codesign --force --deep --options runtime --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+else
+  printf '[package] ad-hoc codesigning app bundle\n'
+  codesign --force --deep --sign - "$APP_DIR"
 fi
 
 mkdir -p "$STAGING_DIR"
