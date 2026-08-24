@@ -20,7 +20,7 @@ permissions:
 jobs:
   build-dmgs:
     name: 构建 DMG (${{ matrix.arch }})
-    runs-on: macos-14
+    runs-on: macos-15
     strategy:
       matrix:
         arch: [arm64, x86_64]
@@ -29,6 +29,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: 配置 Xcode 16 与 Swift 6 环境
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+          swift --version
 
       - name: 解析版本号
         id: get_version

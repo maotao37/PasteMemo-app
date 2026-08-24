@@ -45,16 +45,12 @@ STAGING_DIR="$DIST_DIR/.dmg-staging"
 printf '[package] building %s %s (%s)\n' "$APP_NAME" "$VERSION" "$ARCH"
 swift build -c "$CONFIGURATION" --arch "$ARCH"
 
+# 动态获取当前架构输出目录，避免路径硬编码失效
+BUILD_DIR="$(swift build -c "$CONFIGURATION" --arch "$ARCH" --show-bin-path)"
+PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
+
 if [[ ! -x "$PRODUCT_BINARY" ]]; then
   echo "Built binary not found: $PRODUCT_BINARY" >&2
-  exit 1
-fi
-
-# Glob every *.bundle produced by SwiftPM resource targets. Hard-coding names
-# silently misses new SPM dependencies and crashes Bundle.module at runtime.
-RESOURCE_BUNDLES=("$BUILD_DIR"/*.bundle)
-if [[ ! -d "${RESOURCE_BUNDLES[0]}" ]]; then
-  echo "No SwiftPM resource bundles found in $BUILD_DIR" >&2
   exit 1
 fi
 
@@ -68,9 +64,29 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$DIST_DIR"
 
 cp "$PRODUCT_BINARY" "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
+
+# 构建并复制 MCP Proxy 命令行工具（如果存在）
+swift build -c "$CONFIGURATION" --arch "$ARCH" --product pastememo-mcp 2>/dev/null || true
+if [[ -f "$BUILD_DIR/pastememo-mcp" ]]; then
+  cp "$BUILD_DIR/pastememo-mcp" "$APP_DIR/Contents/MacOS/pastememo-mcp"
+  chmod +x "$APP_DIR/Contents/MacOS/pastememo-mcp"
+fi
+
 cp "$ICON_FILE" "$APP_DIR/Contents/Resources/AppIcon.icns"
-for bundle in "${RESOURCE_BUNDLES[@]}"; do
-  cp -R "$bundle" "$APP_DIR/"
+
+# 复制 Localization 语言包标记目录
+for lproj in "$ROOT_DIR"/Sources/Localization/*.lproj; do
+  if [[ -d "$lproj" ]]; then
+    mkdir -p "$APP_DIR/Contents/Resources/$(basename "$lproj")"
+  fi
+done
+
+# 复制 SwiftPM 生成的所有资源 bundle（如 PermissionFlow 与本地化 bundle）
+for bundle in "$BUILD_DIR"/*.bundle; do
+  if [[ -d "$bundle" ]]; then
+    cp -R "$bundle" "$APP_DIR/Contents/Resources/"
+    cp -R "$bundle" "$APP_DIR/" 2>/dev/null || true
+  fi
 done
 
 CURRENT_YEAR="$(date +%Y)"
