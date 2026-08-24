@@ -52,6 +52,8 @@ struct SettingsView: View {
         case .privacy: PrivacyTab()
         case .aiAgents: AIAgentIntegrationView()
         case .automation: AutomationTab()
+        case .templates: TemplateLibraryView()
+        case .statistics: StorageStatisticsView()
         case .data: DataTab()
         case .sponsor: SponsorTab()
         case .about: AboutTab()
@@ -63,7 +65,7 @@ struct SettingsView: View {
 
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case general, appearance, quickPanel, preview
-    case shortcuts, relay, privacy, aiAgents, automation, data
+    case shortcuts, relay, privacy, aiAgents, automation, templates, statistics, data
     case sponsor, about
 
     var id: String { rawValue }
@@ -71,10 +73,10 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     /// 功能设置：基础(通用/外观) → 快捷面板(快捷键/面板/预览与识别) → 进阶(接力/AI/自动化)。
     static let functionGroup: [SettingsCategory] =
         [.general, .appearance, .shortcuts, .quickPanel, .preview,
-         .relay, .aiAgents, .automation]
+         .relay, .aiAgents, .automation, .templates]
 
     /// 数据与隐私。
-    static let dataPrivacyGroup: [SettingsCategory] = [.privacy, .data]
+    static let dataPrivacyGroup: [SettingsCategory] = [.privacy, .statistics, .data]
 
     /// 应用信息。
     static let aboutGroup: [SettingsCategory] = [.sponsor, .about]
@@ -90,6 +92,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "settings.privacy"
         case .aiAgents: return "settings.tab.aiAgents"
         case .automation: return "settings.automation"
+        case .templates: return "settings.templates"
+        case .statistics: return "stats.storage.title"
         case .data: return "dataPorter.section"
         case .sponsor: return "settings.sponsor"
         case .about: return "settings.about"
@@ -107,6 +111,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "lock.shield"
         case .aiAgents: return "sparkles.rectangle.stack"
         case .automation: return "gearshape.2"
+        case .templates: return "text.badge.plus"
+        case .statistics: return "chart.bar.xaxis"
         case .data: return "externaldrive"
         case .sponsor: return "heart"
         case .about: return "info.circle"

@@ -35,6 +35,47 @@ struct ExportGroup: Codable {
     let sortOrder: Int
     let color: String?
     let preservesItems: Bool?
+    var kindRaw: String? = nil
+    var layoutRaw: String? = nil
+    var isQuickAccess: Bool? = nil
+    var smartQuery: String? = nil
+    var smartContentTypeRaw: String? = nil
+    var smartSourceApp: String? = nil
+    var smartFlagRaw: String? = nil
+    var smartRecentDays: Int? = nil
+    var smartMatchModeRaw: String? = nil
+
+    init(
+        name: String,
+        icon: String,
+        sortOrder: Int,
+        color: String?,
+        preservesItems: Bool?,
+        kindRaw: String? = nil,
+        layoutRaw: String? = nil,
+        isQuickAccess: Bool? = nil,
+        smartQuery: String? = nil,
+        smartContentTypeRaw: String? = nil,
+        smartSourceApp: String? = nil,
+        smartFlagRaw: String? = nil,
+        smartRecentDays: Int? = nil,
+        smartMatchModeRaw: String? = nil
+    ) {
+        self.name = name
+        self.icon = icon
+        self.sortOrder = sortOrder
+        self.color = color
+        self.preservesItems = preservesItems
+        self.kindRaw = kindRaw
+        self.layoutRaw = layoutRaw
+        self.isQuickAccess = isQuickAccess
+        self.smartQuery = smartQuery
+        self.smartContentTypeRaw = smartContentTypeRaw
+        self.smartSourceApp = smartSourceApp
+        self.smartFlagRaw = smartFlagRaw
+        self.smartRecentDays = smartRecentDays
+        self.smartMatchModeRaw = smartMatchModeRaw
+    }
 }
 
 struct ExportRule: Codable {
@@ -54,6 +95,17 @@ struct ExportRule: Codable {
     let updatedAt: Date
 }
 
+struct ExportTemplate: Codable {
+    let templateID: String
+    let name: String
+    let content: String
+    let icon: String
+    let sortOrder: Int
+    let isQuickAccess: Bool
+    let createdAt: Date
+    let updatedAt: Date
+}
+
 struct ExportPayload: Codable {
     let version: Int
     let exportDate: Date
@@ -62,6 +114,7 @@ struct ExportPayload: Codable {
     let groups: [ExportGroup]?
     /// v2+. Absent in v1 files.
     let rules: [ExportRule]?
+    var templates: [ExportTemplate]? = nil
 }
 
 struct ImportResult {
@@ -69,12 +122,14 @@ struct ImportResult {
     let skipped: Int
     let importedGroups: Int
     let importedRules: Int
+    let importedTemplates: Int
 
-    init(imported: Int, skipped: Int, importedGroups: Int = 0, importedRules: Int = 0) {
+    init(imported: Int, skipped: Int, importedGroups: Int = 0, importedRules: Int = 0, importedTemplates: Int = 0) {
         self.imported = imported
         self.skipped = skipped
         self.importedGroups = importedGroups
         self.importedRules = importedRules
+        self.importedTemplates = importedTemplates
     }
 }
 
@@ -98,14 +153,16 @@ enum DataPorter {
     static func buildExportPayload(
         _ clipItems: [ClipItem],
         groups: [SmartGroup],
-        rules: [AutomationRule]
+        rules: [AutomationRule],
+        templates: [TemplateSnippet] = []
     ) -> ExportPayload {
         ExportPayload(
             version: currentVersion,
             exportDate: Date(),
             items: clipItems.map { buildExportItem(from: $0) },
             groups: groups.map { buildExportGroup(from: $0) },
-            rules: rules.map { buildExportRule(from: $0) }
+            rules: rules.map { buildExportRule(from: $0) },
+            templates: templates.map { buildExportTemplate(from: $0) }
         )
     }
 
@@ -128,6 +185,7 @@ enum DataPorter {
         clipItems: [ClipItem],
         groups: [SmartGroup],
         rules: [AutomationRule],
+        templates: [TemplateSnippet] = [],
         to outputURL: URL,
         progress: @MainActor @escaping (_ current: Int, _ total: Int) -> Void = { _, _ in }
     ) async throws {
@@ -173,6 +231,8 @@ enum DataPorter {
         try outputFilter.write(encoder.encode(groups.map(buildSingleExportGroup)))
         try outputFilter.write(Data(",\"rules\":".utf8))
         try outputFilter.write(encoder.encode(rules.map(buildSingleExportRule)))
+        try outputFilter.write(Data(",\"templates\":".utf8))
+        try outputFilter.write(encoder.encode(templates.map(buildSingleExportTemplate)))
         try outputFilter.write(Data("}".utf8))
         try outputFilter.finalize()
     }
@@ -216,6 +276,7 @@ enum DataPorter {
     ) async throws -> ImportResult {
         let groupResult = importGroups(payload.groups ?? [], into: context)
         let ruleResult = importRules(payload.rules ?? [], into: context)
+        let templateResult = importTemplates(payload.templates ?? [], into: context)
 
         let total = payload.items.count
         // Emit a 0/total tick so the progress sheet shows a definite bar
@@ -268,7 +329,8 @@ enum DataPorter {
             imported: imported,
             skipped: skipped,
             importedGroups: groupResult,
-            importedRules: ruleResult
+            importedRules: ruleResult,
+            importedTemplates: templateResult
         )
     }
 
@@ -279,6 +341,7 @@ enum DataPorter {
 
         let groupResult = importGroups(payload.groups ?? [], into: context)
         let ruleResult = importRules(payload.rules ?? [], into: context)
+        let templateResult = importTemplates(payload.templates ?? [], into: context)
 
         var imported = 0
         var skipped = 0
@@ -299,7 +362,8 @@ enum DataPorter {
             imported: imported,
             skipped: skipped,
             importedGroups: groupResult,
-            importedRules: ruleResult
+            importedRules: ruleResult,
+            importedTemplates: templateResult
         )
     }
 
@@ -308,6 +372,7 @@ enum DataPorter {
     static func buildSingleExportItem(_ clip: ClipItem) -> ExportItem { buildExportItem(from: clip) }
     static func buildSingleExportGroup(_ group: SmartGroup) -> ExportGroup { buildExportGroup(from: group) }
     static func buildSingleExportRule(_ rule: AutomationRule) -> ExportRule { buildExportRule(from: rule) }
+    static func buildSingleExportTemplate(_ template: TemplateSnippet) -> ExportTemplate { buildExportTemplate(from: template) }
 
     private static func buildExportItem(from clip: ClipItem) -> ExportItem {
         ExportItem(
@@ -342,7 +407,16 @@ enum DataPorter {
             icon: group.icon,
             sortOrder: group.sortOrder,
             color: group.color,
-            preservesItems: group.preservesItems
+            preservesItems: group.preservesItems,
+            kindRaw: group.kindRaw,
+            layoutRaw: group.layoutRaw,
+            isQuickAccess: group.isQuickAccess,
+            smartQuery: group.smartQuery,
+            smartContentTypeRaw: group.smartContentTypeRaw,
+            smartSourceApp: group.smartSourceApp,
+            smartFlagRaw: group.smartFlagRaw,
+            smartRecentDays: group.smartRecentDays,
+            smartMatchModeRaw: group.smartMatchModeRaw
         )
     }
 
@@ -362,6 +436,19 @@ enum DataPorter {
             actionsDataBase64: rule.actionsData.base64EncodedString(),
             createdAt: rule.createdAt,
             updatedAt: rule.updatedAt
+        )
+    }
+
+    private static func buildExportTemplate(from template: TemplateSnippet) -> ExportTemplate {
+        ExportTemplate(
+            templateID: template.templateID,
+            name: template.name,
+            content: template.content,
+            icon: template.icon,
+            sortOrder: template.sortOrder,
+            isQuickAccess: template.isQuickAccess,
+            createdAt: template.createdAt,
+            updatedAt: template.updatedAt
         )
     }
 
@@ -430,7 +517,16 @@ enum DataPorter {
                 icon: exp.icon,
                 sortOrder: exp.sortOrder,
                 color: exp.color,
-                preservesItems: exp.preservesItems ?? false
+                preservesItems: exp.preservesItems ?? false,
+                kindRaw: exp.kindRaw ?? "manual",
+                layoutRaw: exp.layoutRaw ?? PinboardLayout.list.rawValue,
+                isQuickAccess: exp.isQuickAccess ?? false,
+                smartQuery: exp.smartQuery ?? "",
+                smartContentTypeRaw: exp.smartContentTypeRaw,
+                smartSourceApp: exp.smartSourceApp ?? "",
+                smartFlagRaw: exp.smartFlagRaw ?? SmartGroupFlag.any.rawValue,
+                smartRecentDays: exp.smartRecentDays ?? 0,
+                smartMatchModeRaw: exp.smartMatchModeRaw ?? SmartGroupMatchMode.all.rawValue
             )
             context.insert(group)
             inserted += 1
@@ -465,6 +561,32 @@ enum DataPorter {
             rule.createdAt = exp.createdAt
             rule.updatedAt = exp.updatedAt
             context.insert(rule)
+            inserted += 1
+        }
+        return inserted
+    }
+
+    @discardableResult
+    private static func importTemplates(
+        _ exportTemplates: [ExportTemplate],
+        into context: ModelContext
+    ) -> Int {
+        guard !exportTemplates.isEmpty else { return 0 }
+        let existing = (try? context.fetch(FetchDescriptor<TemplateSnippet>())) ?? []
+        let existingIDs = Set(existing.map(\.templateID))
+        var inserted = 0
+        for exported in exportTemplates where !existingIDs.contains(exported.templateID) {
+            let template = TemplateSnippet(
+                name: exported.name,
+                content: exported.content,
+                icon: exported.icon,
+                sortOrder: exported.sortOrder,
+                isQuickAccess: exported.isQuickAccess
+            )
+            template.templateID = exported.templateID
+            template.createdAt = exported.createdAt
+            template.updatedAt = exported.updatedAt
+            context.insert(template)
             inserted += 1
         }
         return inserted

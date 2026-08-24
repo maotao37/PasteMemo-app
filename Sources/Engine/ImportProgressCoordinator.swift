@@ -140,6 +140,9 @@ private struct ImportProgressView: View {
                 if result.importedRules > 0 {
                     Text(L10n.tr("dataPorter.summary.newRules", result.importedRules))
                 }
+                if result.importedTemplates > 0 {
+                    Text(L10n.tr("dataPorter.summary.newTemplates", result.importedTemplates))
+                }
             }
             .font(.system(size: 12, design: .monospaced))
             .foregroundStyle(.secondary)

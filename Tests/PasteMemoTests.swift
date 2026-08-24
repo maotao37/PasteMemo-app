@@ -273,10 +273,10 @@ struct PasteMemoTests {
         #expect(exported.ocrVersion == 2)
     }
 
-    @Test("DataPorter v2 round-trips groups and user rules, skipping built-in rules")
+    @Test("DataPorter v2 round-trips smart groups, templates, and user rules")
     @MainActor func dataPorterRoundTripsGroupsAndRules() throws {
         let sourceContainer = try ModelContainer(
-            for: ClipItem.self, SmartGroup.self, AutomationRule.self,
+            for: ClipItem.self, SmartGroup.self, AutomationRule.self, TemplateSnippet.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         let sourceContext = sourceContainer.mainContext
@@ -285,8 +285,22 @@ struct PasteMemoTests {
         clip.groupName = "Work"
         sourceContext.insert(clip)
 
-        let group = SmartGroup(name: "Work", icon: "briefcase", sortOrder: 7, color: "#FF0000", preservesItems: true)
+        let group = SmartGroup(
+            name: "Work",
+            icon: "briefcase",
+            sortOrder: 7,
+            color: "#FF0000",
+            kindRaw: "smart",
+            layoutRaw: PinboardLayout.grid.rawValue,
+            isQuickAccess: true,
+            smartQuery: "release",
+            smartContentTypeRaw: ClipContentType.text.rawValue,
+            smartRecentDays: 30
+        )
         sourceContext.insert(group)
+
+        let template = TemplateSnippet(name: "Greeting", content: "Hello {{name}}", sortOrder: 2)
+        sourceContext.insert(template)
 
         let userRule = AutomationRule(
             name: "Lowercase links",
@@ -311,17 +325,19 @@ struct PasteMemoTests {
         let items = try sourceContext.fetch(FetchDescriptor<ClipItem>())
         let groups = try sourceContext.fetch(FetchDescriptor<SmartGroup>())
         let rules = try sourceContext.fetch(FetchDescriptor<AutomationRule>())
-        let payload = DataPorter.buildExportPayload(items, groups: groups, rules: rules)
+        let templates = try sourceContext.fetch(FetchDescriptor<TemplateSnippet>())
+        let payload = DataPorter.buildExportPayload(items, groups: groups, rules: rules, templates: templates)
 
         #expect(payload.version == 2)
         #expect(payload.groups?.count == 1)
         #expect(payload.rules?.count == 2)
+        #expect(payload.templates?.count == 1)
 
         let data = try DataPorter.encodeAndCompress(payload)
 
         // Fresh container to import into
         let destContainer = try ModelContainer(
-            for: ClipItem.self, SmartGroup.self, AutomationRule.self,
+            for: ClipItem.self, SmartGroup.self, AutomationRule.self, TemplateSnippet.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         let destContext = destContainer.mainContext
@@ -330,6 +346,7 @@ struct PasteMemoTests {
         #expect(result.imported == 1)
         #expect(result.importedGroups == 1)
         #expect(result.importedRules == 1) // built-in skipped
+        #expect(result.importedTemplates == 1)
 
         let importedGroups = try destContext.fetch(FetchDescriptor<SmartGroup>())
         #expect(importedGroups.count == 1)
@@ -337,7 +354,16 @@ struct PasteMemoTests {
         #expect(importedGroups.first?.icon == "briefcase")
         #expect(importedGroups.first?.sortOrder == 7)
         #expect(importedGroups.first?.color == "#FF0000")
-        #expect(importedGroups.first?.preservesItems == true)
+        #expect(importedGroups.first?.isSmart == true)
+        #expect(importedGroups.first?.layout == .grid)
+        #expect(importedGroups.first?.isQuickAccess == true)
+        #expect(importedGroups.first?.smartQuery == "release")
+        #expect(importedGroups.first?.smartRecentDays == 30)
+
+        let importedTemplates = try destContext.fetch(FetchDescriptor<TemplateSnippet>())
+        #expect(importedTemplates.count == 1)
+        #expect(importedTemplates.first?.name == "Greeting")
+        #expect(importedTemplates.first?.content == "Hello {{name}}")
 
         let importedRules = try destContext.fetch(FetchDescriptor<AutomationRule>())
         #expect(importedRules.count == 1)

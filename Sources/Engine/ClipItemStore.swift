@@ -65,6 +65,7 @@ final class ClipItemStore {
     var aiAgentOnly: Bool = false
     var sourceApp: FilteredApp? = nil
     var groupName: String? = nil
+    var smartGroupFilter: SmartGroupFilter? = nil
 
     /// Call after changing filter properties to apply them in one reload
     func applyFilters() {
@@ -221,6 +222,7 @@ final class ClipItemStore {
         aiAgentOnly = false
         sourceApp = nil
         groupName = nil
+        smartGroupFilter = nil
         searchText = ""
         currentOffset = 0
         reload()
@@ -358,6 +360,55 @@ final class ClipItemStore {
             conditions.append("ZGROUPNAME = ?")
             params.append(groupName)
         }
+        if let smartGroupFilter {
+            let smartConditions = Self.smartGroupConditions(smartGroupFilter, params: &params)
+            if !smartConditions.isEmpty {
+                let separator = smartGroupFilter.matchMode == .all ? " AND " : " OR "
+                conditions.append("(" + smartConditions.joined(separator: separator) + ")")
+            }
+        }
+    }
+
+    static func smartGroupConditions(_ filter: SmartGroupFilter, params: inout [Any], now: Date = Date()) -> [String] {
+        var conditions: [String] = []
+        let tokens = tokenizeSearchInput(filter.query)
+        if !tokens.isEmpty {
+            let tokenClauses = tokens.map { token in
+                let pattern = "%\(token)%"
+                params.append(contentsOf: [pattern, pattern, pattern, pattern])
+                return "ZITEMID IN (SELECT itemID FROM clip_fts WHERE content LIKE ? OR displayTitle LIKE ? OR linkTitle LIKE ? OR ocrText LIKE ?)"
+            }
+            conditions.append("(" + tokenClauses.joined(separator: " AND ") + ")")
+        }
+        if let raw = filter.contentTypeRaw, let type = ClipContentType(rawValue: raw) {
+            let rawValues = type == .text
+                ? [type.rawValue, ClipContentType.phone.rawValue, ClipContentType.email.rawValue]
+                : [type.rawValue]
+            let placeholders = rawValues.map { _ in "?" }.joined(separator: ", ")
+            if let mixedClause = mixedCrossoverSQL(for: type) {
+                conditions.append("(ZCONTENTTYPERAW IN (\(placeholders)) OR \(mixedClause))")
+            } else {
+                conditions.append("ZCONTENTTYPERAW IN (\(placeholders))")
+            }
+            params.append(contentsOf: rawValues)
+        }
+        let source = filter.sourceApp.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            conditions.append("ZSOURCEAPP LIKE ?")
+            params.append("%\(source)%")
+        }
+        switch filter.flag {
+        case .any: break
+        case .pinned: conditions.append("ZISPINNED = 1")
+        case .favorite: conditions.append("ZISFAVORITE = 1")
+        case .sensitive: conditions.append("ZISSENSITIVE = 1")
+        }
+        if filter.recentDays > 0 {
+            let cutoff = Calendar.current.date(byAdding: .day, value: -filter.recentDays, to: now) ?? now
+            conditions.append("ZCREATEDAT >= ?")
+            params.append(cutoff.timeIntervalSinceReferenceDate)
+        }
+        return conditions
     }
 
     /// Extra SQL (parameter-less) that lets `.mixed` items surface under cross-category filters
@@ -438,7 +489,20 @@ final class ClipItemStore {
         var aiAgent = 0
         var byType: [ClipContentType: Int] = [:]
         var byApp: [String?: Int] = [:]  // nil key = unknown app
-        var byGroup: [(name: String, icon: String, count: Int, preservesItems: Bool)] = []
+        var byGroup: [SidebarGroup] = []
+    }
+
+    struct SidebarGroup: Identifiable, Equatable {
+        var id: String { name }
+        let name: String
+        let icon: String
+        var count: Int
+        let preservesItems: Bool
+        let color: String?
+        let layout: PinboardLayout
+        let isQuickAccess: Bool
+        let isSmart: Bool
+        let smartFilter: SmartGroupFilter?
     }
 
     func refreshSidebarCounts() {
@@ -487,9 +551,36 @@ final class ClipItemStore {
         }
         let nullCount = db.queryInt("SELECT COUNT(*) FROM ZCLIPITEM WHERE ZSOURCEAPP IS NULL")
         if nullCount > 0 { counts.byApp[nil] = nullCount }
-        counts.byGroup = db.queryGroupRows(
-            "SELECT ZNAME, COALESCE(ZICON, 'folder'), ZCOUNT, COALESCE(ZPRESERVESITEMS, 0) FROM ZSMARTGROUP ORDER BY ZSORTORDER"
-        ).map { (name: $0.0, icon: $0.1, count: $0.2, preservesItems: $0.3) }
+        let descriptor = FetchDescriptor<SmartGroup>(sortBy: [SortDescriptor(\.sortOrder)])
+        let groups = (try? modelContext?.fetch(descriptor)) ?? []
+        counts.byGroup = groups.map { group in
+            let smartFilter = group.isSmart ? group.smartFilter : nil
+            var count = group.count
+            if let smartFilter {
+                var smartParams: [Any] = []
+                let smartConditions = Self.smartGroupConditions(smartFilter, params: &smartParams)
+                if smartConditions.isEmpty {
+                    count = 0
+                } else {
+                    let separator = smartFilter.matchMode == .all ? " AND " : " OR "
+                    count = db.queryInt(
+                        "SELECT COUNT(*) FROM ZCLIPITEM WHERE (" + smartConditions.joined(separator: separator) + ")",
+                        params: smartParams
+                    )
+                }
+            }
+            return SidebarGroup(
+                name: group.name,
+                icon: group.icon,
+                count: count,
+                preservesItems: group.preservesItems,
+                color: group.color,
+                layout: group.layout,
+                isQuickAccess: group.isQuickAccess,
+                isSmart: group.isSmart,
+                smartFilter: smartFilter
+            )
+        }
         sidebarCounts = counts
     }
 
@@ -595,6 +686,16 @@ final class ClipItemStore {
         if !wasPaused { ClipboardManager.shared.resumeMonitoring() }
     }
 
+    /// Permanently deletes items and immediately reclaims any app-owned original-image files.
+    /// Undoable deletion must continue to use `deleteAndNotify` so its snapshots keep working.
+    static func deleteAndNotifyPermanently(_ itemsToDelete: [ClipItem], from context: ModelContext) {
+        let originalPaths = itemsToDelete.compactMap(\.originalImageFilePath)
+        deleteAndNotify(itemsToDelete, from: context)
+        for path in originalPaths {
+            ClipboardManager.deleteOriginalCacheFile(at: path)
+        }
+    }
+
     /// Async batched variant of `deleteAndNotify` for large deletions. Yields
     /// between batches so the UI stays responsive; callers typically show a
     /// progress sheet and forward the `(done, total)` callback to it.
@@ -606,6 +707,8 @@ final class ClipItemStore {
         progress: ((Int, Int) -> Void)? = nil
     ) async {
         guard !itemsToDelete.isEmpty else { return }
+
+        let originalPaths = itemsToDelete.compactMap(\.originalImageFilePath)
 
         let wasPaused = ClipboardManager.shared.isPaused
         if !wasPaused { ClipboardManager.shared.pauseMonitoring() }
@@ -637,6 +740,10 @@ final class ClipItemStore {
         }
         isBulkOperation = wasBulk
         saveAndNotify(context)
+
+        for path in originalPaths {
+            ClipboardManager.deleteOriginalCacheFile(at: path)
+        }
 
         if !wasPaused { ClipboardManager.shared.resumeMonitoring() }
     }

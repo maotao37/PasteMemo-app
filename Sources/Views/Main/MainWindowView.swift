@@ -244,6 +244,14 @@ struct MainWindowView: View {
                 .disabled(RelayManager.shared.isActive)
             }
             ToolbarItem(placement: .automatic) {
+                Menu {
+                    QuickTemplateMenuContent()
+                } label: {
+                    Label(L10n.tr("settings.templates"), systemImage: "text.badge.plus")
+                }
+                .help(L10n.tr("settings.templates"))
+            }
+            ToolbarItem(placement: .automatic) {
                 Button {
                     if RelayManager.shared.isActive {
                         RelayManager.shared.deactivate()
@@ -322,6 +330,7 @@ struct MainWindowView: View {
         store.filterType = nil
         store.sourceApp = nil
         store.groupName = nil
+        store.smartGroupFilter = nil
         switch selectedFilter {
         case .all: break
         case .pinned: store.pinnedOnly = true
@@ -331,7 +340,12 @@ struct MainWindowView: View {
         case .app(let name):
             store.sourceApp = name.isEmpty ? .unknown : .named(name)
         case .group(let name):
-            store.groupName = name
+            if let group = store.sidebarCounts.byGroup.first(where: { $0.name == name }),
+               let smartFilter = group.smartFilter {
+                store.smartGroupFilter = smartFilter
+            } else {
+                store.groupName = name
+            }
         }
         store.applyFilters()
     }
@@ -363,6 +377,10 @@ struct MainWindowView: View {
                         selectedFilter = .sensitive
                     }
                 }
+
+                ForEach(store.sidebarCounts.byGroup.filter(\.isQuickAccess), id: \.name) { group in
+                    groupSidebarEntry(group)
+                }
             }
 
             Section(L10n.tr("filter.types")) {
@@ -390,49 +408,11 @@ struct MainWindowView: View {
                 }
             }
 
-            if !store.sidebarCounts.byGroup.isEmpty {
+            let regularGroups = store.sidebarCounts.byGroup.filter { !$0.isQuickAccess }
+            if !regularGroups.isEmpty {
                 Section(L10n.tr("filter.groups")) {
-                    ForEach(store.sidebarCounts.byGroup, id: \.name) { group in
-                        sidebarRow(group.name, icon: group.icon, badge: group.count, showsPreservedBadge: group.preservesItems, isActive: selectedFilter == .group(group.name)) {
-                            selectedFilter = .group(group.name)
-                        }
-                        .contextMenu {
-                            Button(L10n.tr("action.editGroup")) {
-                                editGroup(name: group.name)
-                            }
-                            Button(L10n.tr("action.changeIcon")) {
-                                changeGroupIcon(name: group.name)
-                            }
-                            Divider()
-                            Button(L10n.tr("action.clearScope.group"), role: .destructive) {
-                                clearItems(inScope: .group(group.name))
-                            }
-                            .disabled(group.preservesItems)
-                            .help(group.preservesItems ? L10n.tr("action.clearScope.group.disabledHelp") : "")
-                            Button(L10n.tr("action.deleteGroup"), role: .destructive) {
-                                let alert = NSAlert()
-                                alert.messageText = L10n.tr("action.deleteGroup")
-                                alert.informativeText = L10n.tr("action.deleteGroupConfirm", group.name)
-                                alert.alertStyle = .warning
-                                alert.addButton(withTitle: L10n.tr("action.delete"))
-                                alert.addButton(withTitle: L10n.tr("action.cancel"))
-                                guard alert.runModal() == .alertFirstButtonReturn else { return }
-                                if selectedFilter == .group(group.name) {
-                                    selectedFilter = .all
-                                }
-                                AppMenuActions.deleteGroup(name: group.name, context: modelContext)
-                            }
-                        }
-                        .onDrag {
-                            draggingGroup = group.name
-                            return NSItemProvider(object: group.name as NSString)
-                        }
-                        .onDrop(of: [.text], delegate: GroupDropDelegate(
-                            target: group.name,
-                            dragging: $draggingGroup,
-                            store: store,
-                            modelContext: modelContext
-                        ))
+                    ForEach(regularGroups, id: \.name) { group in
+                        groupSidebarEntry(group)
                     }
                 }
             }
@@ -455,6 +435,55 @@ struct MainWindowView: View {
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
+    }
+
+    private func groupSidebarEntry(_ group: ClipItemStore.SidebarGroup) -> some View {
+        sidebarRow(
+            group.name,
+            icon: group.icon,
+            badge: group.count,
+            colorHex: group.color,
+            showsPreservedBadge: group.preservesItems,
+            showsSmartBadge: group.isSmart,
+            isActive: selectedFilter == .group(group.name)
+        ) {
+            selectedFilter = .group(group.name)
+        }
+        .contextMenu {
+            Button(L10n.tr("action.editGroup")) { editGroup(name: group.name) }
+            Divider()
+            if !group.isSmart {
+                Button(L10n.tr("action.clearScope.group"), role: .destructive) {
+                    clearItems(inScope: .group(group.name))
+                }
+                .disabled(group.preservesItems)
+            }
+            Button(L10n.tr("action.deleteGroup"), role: .destructive) {
+                confirmDeleteGroup(group)
+            }
+        }
+        .onDrag {
+            draggingGroup = group.name
+            return NSItemProvider(object: group.name as NSString)
+        }
+        .onDrop(of: [.text], delegate: GroupDropDelegate(
+            target: group.name,
+            dragging: $draggingGroup,
+            store: store,
+            modelContext: modelContext
+        ))
+    }
+
+    private func confirmDeleteGroup(_ group: ClipItemStore.SidebarGroup) {
+        let alert = NSAlert()
+        alert.messageText = L10n.tr("action.deleteGroup")
+        alert.informativeText = L10n.tr("action.deleteGroupConfirm", group.name)
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L10n.tr("action.delete"))
+        alert.addButton(withTitle: L10n.tr("action.cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if selectedFilter == .group(group.name) { selectedFilter = .all }
+        AppMenuActions.deleteGroup(name: group.name, context: modelContext)
     }
 
     private func appSidebarRow(_ appName: String, badge: Int = 0, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -500,11 +529,20 @@ struct MainWindowView: View {
         )
     }
 
-    private func sidebarRow(_ title: String, icon: String, badge: Int = 0, showsPreservedBadge: Bool = false, isActive: Bool, action: @escaping () -> Void) -> some View {
+    private func sidebarRow(
+        _ title: String,
+        icon: String,
+        badge: Int = 0,
+        colorHex: String? = nil,
+        showsPreservedBadge: Bool = false,
+        showsSmartBadge: Bool = false,
+        isActive: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 13))
-                .foregroundStyle(isActive ? Color.white : Color.secondary)
+                .foregroundStyle(isActive ? Color.white : Color.pasteMemo(hex: colorHex) ?? Color.secondary)
                 .frame(width: 18)
             Text(title)
                 .font(.system(size: 13, weight: isActive ? .medium : .regular))
@@ -514,6 +552,12 @@ struct MainWindowView: View {
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(isActive ? Color.white.opacity(0.95) : Color.secondary)
                     .help(L10n.tr("group.preserveItems.badge"))
+            }
+            if showsSmartBadge {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(isActive ? Color.white.opacity(0.95) : Color.accentColor)
+                    .help(L10n.tr("group.smart.badge"))
             }
             Spacer()
             if badge > 0 {
@@ -565,7 +609,21 @@ struct MainWindowView: View {
         cachedVisualOrderedItems
     }
 
+    private var selectedPinboardLayout: PinboardLayout {
+        guard case .group(let name) = selectedFilter else { return .list }
+        return store.sidebarCounts.byGroup.first(where: { $0.name == name })?.layout ?? .list
+    }
+
+    @ViewBuilder
     private var clipListView: some View {
+        if selectedPinboardLayout == .grid {
+            pinboardGridView
+        } else {
+            nativeClipListView
+        }
+    }
+
+    private var nativeClipListView: some View {
         NativeClipHistoryList(
             rows: historyRows,
             rowIndexByItemID: historyRowIndexByID,
@@ -577,7 +635,7 @@ struct MainWindowView: View {
             showCommandPalette: showCommandPalette,
             allowMultipleSelection: true,
             scrollAlignment: .center,
-            itemRowHeight: 48,
+            itemRowHeight: selectedPinboardLayout == .compact ? 36 : 48,
             headerRowHeight: 28,
             onItemTap: { id in
                 guard let item = historyItemMap[id] else { return }
@@ -634,15 +692,79 @@ struct MainWindowView: View {
         .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 450)
     }
 
+    private var pinboardGridView: some View {
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 12)], spacing: 12) {
+                ForEach(visualOrderedItems, id: \.persistentModelID) { item in
+                    pinboardGridCard(item)
+                        .contentShape(Rectangle())
+                        .onTapGesture { handleRowClick(item) }
+                        .contextMenu { mainListContextMenu(item: item) }
+                        .onAppear {
+                            if item.persistentModelID == visualOrderedItems.last?.persistentModelID, store.hasMore {
+                                store.loadMore()
+                            }
+                        }
+                }
+            }
+            .padding(14)
+        }
+        .navigationTitle(selectedFilter.title)
+        .navigationSubtitle("\(store.totalCount) \(L10n.tr("stats.clips"))")
+        .navigationSplitViewColumnWidth(min: 300, ideal: 420, max: 620)
+    }
+
+    private func pinboardGridCard(_ item: ClipItem) -> some View {
+        let isSelected = selectedItems.contains(item.persistentModelID)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: item.contentType.icon)
+                    .foregroundStyle(.secondary)
+                Text(item.contentType.label)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if item.isPinned { Image(systemName: "pin.fill").foregroundStyle(PasteMemoVisualStyle.pinned) }
+            }
+            if item.contentType == .image, let data = item.imageData, let image = NSImage(data: data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 120)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                Text(item.displayTitle ?? item.content)
+                    .font(.system(size: 12.5))
+                    .lineLimit(5)
+                    .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+            }
+            Text(formatTimeAgo(item.lastUsedAt))
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .frame(minHeight: 150, alignment: .top)
+        .background(
+            isSelected ? PasteMemoVisualStyle.selectedFill : Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? PasteMemoVisualStyle.selectedStroke : PasteMemoVisualStyle.subtleStroke)
+        )
+    }
+
     private func mainListRowContent(item: ClipItem, isSelected: Bool) -> some View {
         ClipItemListRow(
             item: item,
             isSelected: isSelected,
             groupIcon: store.sidebarCounts.byGroup.first { $0.name == item.groupName }?.icon,
-            searchText: searchText
+            searchText: searchText,
+            compact: selectedPinboardLayout == .compact
         )
             .padding(.horizontal, 10)
-            .padding(.vertical, 3)
+            .padding(.vertical, selectedPinboardLayout == .compact ? 0 : 3)
             .background(
                 RoundedRectangle(cornerRadius: 7.5)
                     .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
@@ -709,7 +831,7 @@ struct MainWindowView: View {
             let groupNames = Set(targetItems.compactMap(\.groupName))
             let currentGroup = groupNames.count == 1 ? groupNames.first : nil
             Menu(L10n.tr("action.assignGroup")) {
-                ForEach(store.sidebarCounts.byGroup, id: \.name) { group in
+                ForEach(store.sidebarCounts.byGroup.filter { !$0.isSmart }, id: \.name) { group in
                     if group.name == currentGroup {
                         Button {} label: {
                             Label(group.name, systemImage: "checkmark")
@@ -720,7 +842,7 @@ struct MainWindowView: View {
                         }
                     }
                 }
-                if !store.sidebarCounts.byGroup.isEmpty {
+                if store.sidebarCounts.byGroup.contains(where: { !$0.isSmart }) {
                     Divider()
                 }
                 Button(L10n.tr("action.newGroup")) {
@@ -872,16 +994,27 @@ struct MainWindowView: View {
     }
 
     private func mergeSelectedItems() {
-        let items = selectedClipItems.sorted { $0.createdAt < $1.createdAt }
+        let items = selectedClipItems
         guard items.count > 1, items.allSatisfy({ $0.contentType.isMergeable }) else { return }
-        let merged = items.map(\.content).joined(separator: "\n")
-        let newItem = ClipItem(content: merged, contentType: .text)
-        modelContext.insert(newItem)
-        ClipItemStore.deleteAndNotify(items, from: modelContext)
-        let newID = newItem.persistentModelID
-        selectedItems = [newID]
-        navigationCursor = newID
-        scrollTarget = newID
+        guard let result = ClipComposerPanel.show(items: items, canPaste: false) else { return }
+        switch result.action {
+        case .copyOrPaste:
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(result.content, forType: .string)
+            pasteboard.markAsPasteMemoWrite()
+            clipboardManager.lastChangeCount = pasteboard.changeCount
+            ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
+        case .createClip:
+            let newItem = ClipItem(content: result.content, contentType: .text)
+            modelContext.insert(newItem)
+            if result.removeOriginals { ClipItemStore.deleteAndNotifyPermanently(items, from: modelContext) }
+            else { ClipItemStore.saveAndNotify(modelContext) }
+            let newID = newItem.persistentModelID
+            selectedItems = [newID]
+            navigationCursor = newID
+            scrollTarget = newID
+        }
     }
 
     private func handleMainCommandAction(_ action: CommandAction, item: ClipItem?) {
@@ -1125,15 +1258,6 @@ struct MainWindowView: View {
         ShortcutNotifier.showSuccess(ruleName: displayName)
     }
 
-    private func changeGroupIcon(name: String) {
-        let descriptor = FetchDescriptor<SmartGroup>(predicate: #Predicate { $0.name == name })
-        guard let group = try? modelContext.fetch(descriptor).first else { return }
-        guard let result = GroupEditorPanel.show(name: group.name, icon: group.icon, preservesItems: group.preservesItems) else { return }
-        group.icon = result.icon
-        group.preservesItems = result.preservesItems
-        ClipItemStore.saveAndNotify(modelContext)
-    }
-
     private func editGroup(name: String) {
         let descriptor = FetchDescriptor<SmartGroup>(predicate: #Predicate { $0.name == name })
         guard let group = try? modelContext.fetch(descriptor).first else { return }
@@ -1181,9 +1305,20 @@ struct MainWindowView: View {
         if let existing = try? modelContext.fetch(descriptor).first {
             existing.icon = result.icon
             existing.preservesItems = result.preservesItems
+            existing.color = result.color
+            existing.layoutRaw = result.layoutRaw
+            existing.isQuickAccess = result.isQuickAccess
         } else {
             let maxOrder = (try? modelContext.fetch(FetchDescriptor<SmartGroup>()))?.map(\.sortOrder).max() ?? -1
-            let group = SmartGroup(name: result.name, icon: result.icon, sortOrder: maxOrder + 1, preservesItems: result.preservesItems)
+            let group = SmartGroup(
+                name: result.name,
+                icon: result.icon,
+                sortOrder: maxOrder + 1,
+                color: result.color,
+                preservesItems: result.preservesItems,
+                layoutRaw: result.layoutRaw,
+                isQuickAccess: result.isQuickAccess
+            )
             modelContext.insert(group)
         }
         try? modelContext.save()
@@ -1252,7 +1387,7 @@ struct MainWindowView: View {
         guard !items.isEmpty else { return }
         let total = items.count
         if total < Self.bulkClearProgressThreshold {
-            ClipItemStore.deleteAndNotify(items, from: modelContext)
+            ClipItemStore.deleteAndNotifyPermanently(items, from: modelContext)
             return
         }
         clearTitle = title
@@ -1434,10 +1569,10 @@ struct MainWindowView: View {
 
     private func multiActionGroupMenu(items: [ClipItem]) -> some View {
         Menu {
-            ForEach(store.sidebarCounts.byGroup, id: \.name) { group in
+            ForEach(store.sidebarCounts.byGroup.filter { !$0.isSmart }, id: \.name) { group in
                 Button(group.name) { assignToGroup(items: items, name: group.name) }
             }
-            if !store.sidebarCounts.byGroup.isEmpty { Divider() }
+            if store.sidebarCounts.byGroup.contains(where: { !$0.isSmart }) { Divider() }
             Button(L10n.tr("action.newGroup")) { showNewGroupAlert(for: items) }
         } label: {
             HStack(spacing: 10) {
@@ -1556,9 +1691,16 @@ struct ClipItemListRow: View {
     var isSelected: Bool = false
     var groupIcon: String?
     var searchText: String = ""
+    var compact: Bool = false
 
     var body: some View {
-        ClipRow(item: item, isSelected: isSelected, groupIcon: groupIcon, searchText: searchText)
+        ClipRow(
+            item: item,
+            isSelected: isSelected,
+            groupIcon: groupIcon,
+            searchText: searchText,
+            compact: compact
+        )
             .padding(.vertical, 2)
             .transaction { $0.animation = nil }
     }

@@ -399,6 +399,7 @@ struct QuickPanelView: View {
             if latestItemID != lastSeenFirstItemID {
                 store.resetFilters()
             } else {
+                store.smartGroupFilter = nil
                 store.updateQuery(searchText: .set(""), sourceApp: .set(nil), groupName: .set(nil))
             }
             lastSeenFirstItemID = latestItemID
@@ -537,7 +538,7 @@ struct QuickPanelView: View {
     /// user's sidebar drag order. Users narrow further by typing more.
     private static let SUGGESTION_SECTION_LIMIT = 8
 
-    private var currentSuggestionGroups: [(name: String, icon: String, count: Int, preservesItems: Bool)] {
+    private var currentSuggestionGroups: [ClipItemStore.SidebarGroup] {
         guard shouldSuggestGroups else { return [] }
         guard searchText.hasPrefix(Self.GROUP_SEARCH_PREFIX) else { return [] }
         let query = String(searchText.dropFirst()).trimmingCharacters(in: .whitespaces).lowercased()
@@ -754,6 +755,7 @@ struct QuickPanelView: View {
         store.aiAgentOnly = false
         store.filterType = nil
         store.groupName = nil
+        store.smartGroupFilter = nil
         store.sourceApp = nil
 
         switch primary {
@@ -761,13 +763,13 @@ struct QuickPanelView: View {
         case .pinned: store.pinnedOnly = true
         case .aiAgent: store.aiAgentOnly = true
         case .type(let t): store.filterType = t
-        case .group(let name): store.groupName = name
+        case .group(let name): applyGroupFilter(name)
         }
 
         switch pill {
         case nil: break
         case .type(let t): store.filterType = t
-        case .group(let name): store.groupName = name
+        case .group(let name): applyGroupFilter(name)
         case .app(let name): store.sourceApp = .named(name)
         }
 
@@ -932,8 +934,19 @@ struct QuickPanelView: View {
         }
     }
 
-    private var availableGroupsForTab: [(name: String, icon: String, count: Int, preservesItems: Bool)] {
+    private var availableGroupsForTab: [ClipItemStore.SidebarGroup] {
         store.sidebarCounts.byGroup.filter { $0.count > 0 }
+    }
+
+    private func applyGroupFilter(_ name: String) {
+        if let group = store.sidebarCounts.byGroup.first(where: { $0.name == name }),
+           let smartFilter = group.smartFilter {
+            store.smartGroupFilter = smartFilter
+            store.groupName = nil
+        } else {
+            store.groupName = name
+            store.smartGroupFilter = nil
+        }
     }
 
     private func badge(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -1328,6 +1341,11 @@ struct QuickPanelView: View {
             // 复制置顶，与主窗口右键菜单一致
             Button(L10n.tr("action.mergeCopy")) {
                 copyItemsToClipboard(items)
+            }
+            if items.allSatisfy({ $0.contentType.isMergeable }) {
+                Button(L10n.tr("composer.title")) {
+                    composeAndPaste(items)
+                }
             }
             let hasPinned = items.contains(where: \.isPinned)
             Button(hasPinned ? L10n.tr("action.unpin") : L10n.tr("action.pin")) {
@@ -1944,7 +1962,7 @@ struct QuickPanelView: View {
         let groupNames = Set(items.compactMap(\.groupName))
         let currentGroup = groupNames.count == 1 ? groupNames.first : nil
         Menu(L10n.tr("action.assignGroup")) {
-            ForEach(store.sidebarCounts.byGroup, id: \.name) { group in
+            ForEach(store.sidebarCounts.byGroup.filter { !$0.isSmart }, id: \.name) { group in
                 if group.name == currentGroup {
                     Button {} label: {
                         Label(group.name, systemImage: "checkmark")
@@ -1956,7 +1974,7 @@ struct QuickPanelView: View {
                     }
                 }
             }
-            if !store.sidebarCounts.byGroup.isEmpty {
+            if store.sidebarCounts.byGroup.contains(where: { !$0.isSmart }) {
                 Divider()
             }
             Button(L10n.tr("action.newGroup")) {
@@ -2003,6 +2021,22 @@ struct QuickPanelView: View {
             } else {
                 clipboardManager.pasteMultiple(items, forceNewLine: forceNewLine, targetApp: previousApp ?? app)
             }
+        }
+    }
+
+    private func composeAndPaste(_ items: [ClipItem]) {
+        guard let result = ClipComposerPanel.show(items: items, canPaste: true) else { return }
+        if case .createClip = result.action {
+            let newItem = ClipItem(content: result.content, contentType: .text)
+            modelContext.insert(newItem)
+            if result.removeOriginals { ClipItemStore.deleteAndNotifyPermanently(items, from: modelContext) }
+            else { ClipItemStore.saveAndNotify(modelContext) }
+            selectedItemIDs = [newItem.persistentModelID]
+            return
+        }
+        bumpLastUsedPreservingOrder(items)
+        dismissAndRestoreApp { app in
+            clipboardManager.pasteAsPlainText(result.content, targetApp: app)
         }
     }
 
@@ -2209,9 +2243,20 @@ struct QuickPanelView: View {
         if let existing = try? modelContext.fetch(descriptor).first {
             existing.icon = result.icon
             existing.preservesItems = result.preservesItems
+            existing.color = result.color
+            existing.layoutRaw = result.layoutRaw
+            existing.isQuickAccess = result.isQuickAccess
         } else {
             let maxOrder = (try? modelContext.fetch(FetchDescriptor<SmartGroup>()))?.map(\.sortOrder).max() ?? -1
-            let group = SmartGroup(name: result.name, icon: result.icon, sortOrder: maxOrder + 1, preservesItems: result.preservesItems)
+            let group = SmartGroup(
+                name: result.name,
+                icon: result.icon,
+                sortOrder: maxOrder + 1,
+                color: result.color,
+                preservesItems: result.preservesItems,
+                layoutRaw: result.layoutRaw,
+                isQuickAccess: result.isQuickAccess
+            )
             modelContext.insert(group)
         }
         try? modelContext.save()

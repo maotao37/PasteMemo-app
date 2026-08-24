@@ -18,9 +18,10 @@ enum AppMenuActions {
         guard let items = try? context.fetch(FetchDescriptor<ClipItem>()) else { return }
         let groups = (try? context.fetch(FetchDescriptor<SmartGroup>())) ?? []
         let rules = (try? context.fetch(FetchDescriptor<AutomationRule>())) ?? []
+        let templates = (try? context.fetch(FetchDescriptor<TemplateSnippet>())) ?? []
 
         // Step 1: extract on main thread (SwiftData objects)
-        let payload = DataPorter.buildExportPayload(items, groups: groups, rules: rules)
+        let payload = DataPorter.buildExportPayload(items, groups: groups, rules: rules, templates: templates)
         // Step 2: encode + compress + write on background thread
         Task.detached {
             do {
@@ -100,13 +101,13 @@ enum AppMenuActions {
                 coordinator.updateProgress(current: 0, total: payload.items.count)
 
                 ClipItemStore.isBulkOperation = true
+                defer { ClipItemStore.isBulkOperation = false }
                 let result = try await DataPorter.importItems(
                     payload: payload,
                     into: context
                 ) { current, total in
                     coordinator.updateProgress(current: current, total: total)
                 }
-                ClipItemStore.isBulkOperation = false
 
                 // Same reasoning as DataPorterSection.performImport: the
                 // throttled save observer is async (`.receive(on: RunLoop.main)`),
@@ -136,17 +137,52 @@ enum AppMenuActions {
         let descriptor = FetchDescriptor<SmartGroup>(predicate: #Predicate { $0.name == resultName })
         if (try? context.fetch(descriptor).first) != nil { return }
         let maxOrder = (try? context.fetch(FetchDescriptor<SmartGroup>()))?.map(\.sortOrder).max() ?? -1
-        let group = SmartGroup(name: result.name, icon: result.icon, sortOrder: maxOrder + 1, preservesItems: result.preservesItems)
+        let group = SmartGroup(
+            name: result.name,
+            icon: result.icon,
+            sortOrder: maxOrder + 1,
+            color: result.color,
+            preservesItems: result.preservesItems,
+            kindRaw: result.kindRaw,
+            layoutRaw: result.layoutRaw,
+            isQuickAccess: result.isQuickAccess
+        )
+        applySmartFilter(result.smartFilter, to: group)
         context.insert(group)
         try? context.save()
         NotificationCenter.default.post(name: ClipItemStore.itemDidUpdateNotification, object: nil)
     }
 
     static func showEditGroupAlert(group: SmartGroup, context: ModelContext) {
-        guard let result = GroupEditorPanel.show(name: group.name, icon: group.icon, preservesItems: group.preservesItems) else { return }
+        let oldName = group.name
+        guard let result = GroupEditorPanel.show(
+            name: group.name,
+            icon: group.icon,
+            preservesItems: group.preservesItems,
+            color: group.color,
+            layoutRaw: group.layoutRaw,
+            isQuickAccess: group.isQuickAccess,
+            isSmart: group.isSmart,
+            smartFilter: group.smartFilter
+        ) else { return }
+        if result.name != oldName {
+            let newName = result.name
+            let duplicate = FetchDescriptor<SmartGroup>(predicate: #Predicate { $0.name == newName })
+            guard (try? context.fetch(duplicate).first) == nil else { return }
+            if !group.isSmart {
+                let assigned = FetchDescriptor<ClipItem>(predicate: #Predicate { $0.groupName == oldName })
+                for item in (try? context.fetch(assigned)) ?? [] {
+                    item.groupName = newName
+                }
+            }
+        }
         group.name = result.name
         group.icon = result.icon
         group.preservesItems = result.preservesItems
+        group.color = result.color
+        group.layoutRaw = result.layoutRaw
+        group.isQuickAccess = result.isQuickAccess
+        applySmartFilter(result.smartFilter, to: group)
         try? context.save()
         NotificationCenter.default.post(name: ClipItemStore.itemDidUpdateNotification, object: nil)
     }
@@ -161,6 +197,42 @@ enum AppMenuActions {
         context.delete(group)
         try? context.save()
         NotificationCenter.default.post(name: ClipItemStore.itemDidUpdateNotification, object: nil)
+    }
+
+    static func showNewSmartGroupAlert() {
+        guard let result = GroupEditorPanel.show(
+            icon: "sparkles",
+            color: SmartGroup.availableColors.first,
+            isQuickAccess: true,
+            isSmart: true
+        ) else { return }
+        let context = PasteMemoApp.sharedModelContainer.mainContext
+        let name = result.name
+        let descriptor = FetchDescriptor<SmartGroup>(predicate: #Predicate { $0.name == name })
+        guard (try? context.fetch(descriptor).first) == nil else { return }
+        let maxOrder = (try? context.fetch(FetchDescriptor<SmartGroup>()))?.map(\.sortOrder).max() ?? -1
+        let group = SmartGroup(
+            name: result.name,
+            icon: result.icon,
+            sortOrder: maxOrder + 1,
+            color: result.color,
+            kindRaw: "smart",
+            layoutRaw: result.layoutRaw,
+            isQuickAccess: result.isQuickAccess
+        )
+        applySmartFilter(result.smartFilter, to: group)
+        context.insert(group)
+        try? context.save()
+        NotificationCenter.default.post(name: ClipItemStore.itemDidUpdateNotification, object: nil)
+    }
+
+    private static func applySmartFilter(_ filter: SmartGroupFilter, to group: SmartGroup) {
+        group.smartQuery = filter.query
+        group.smartContentTypeRaw = filter.contentTypeRaw
+        group.smartSourceApp = filter.sourceApp
+        group.smartFlagRaw = filter.flagRaw
+        group.smartRecentDays = filter.recentDays
+        group.smartMatchModeRaw = filter.matchModeRaw
     }
 
     private static func showAlert(_ message: String) {

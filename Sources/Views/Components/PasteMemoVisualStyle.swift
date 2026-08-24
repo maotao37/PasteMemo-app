@@ -14,3 +14,16 @@ enum PasteMemoVisualStyle {
     static let selectedFill = Color.accentColor.opacity(0.14)
     static let selectedStroke = Color.accentColor.opacity(0.28)
 }
+
+extension Color {
+    static func pasteMemo(hex: String?) -> Color? {
+        guard let raw = hex?.trimmingCharacters(in: CharacterSet.alphanumerics.inverted),
+              raw.count == 6,
+              let value = UInt64(raw, radix: 16) else { return nil }
+        return Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
+    }
+}
