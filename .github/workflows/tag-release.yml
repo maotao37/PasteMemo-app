@@ -53,7 +53,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
           VERSION: ${{ steps.get_version.outputs.version }}
         run: |
-          bash ./scripts/package.sh
+          bash -x ./scripts/package.sh
 
       - name: 生成 SHA256 校验和文件
         run: |

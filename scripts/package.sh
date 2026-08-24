@@ -40,12 +40,14 @@ resolve_version() {
 VERSION="$(resolve_version)"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}-${ARCH}.dmg"
-STAGING_DIR="$DIST_DIR/.dmg-staging"
+STAGING_DIR="$DIST_DIR/.dmg-staging-${ARCH}"
 
 printf '[package] building %s %s (%s)\n' "$APP_NAME" "$VERSION" "$ARCH"
+
+# 根据不同架构构建 SwiftPM 项目
 swift build -c "$CONFIGURATION" --arch "$ARCH"
 
-# 动态获取当前架构输出目录，避免路径硬编码失效
+# 动态获取当前架构输出目录
 BUILD_DIR="$(swift build -c "$CONFIGURATION" --arch "$ARCH" --show-bin-path)"
 PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
 
@@ -138,13 +140,14 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 EOF
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-  printf '[package] codesigning app bundle\n'
+  printf '[package] codesigning app bundle with %s\n' "$CODESIGN_IDENTITY"
   codesign --force --deep --options runtime --sign "$CODESIGN_IDENTITY" "$APP_DIR"
 else
   printf '[package] ad-hoc codesigning app bundle\n'
-  codesign --force --deep --sign - "$APP_DIR"
+  codesign --force --deep --sign - "$APP_DIR" || true
 fi
 
+rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 cp -R "$APP_DIR" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
@@ -156,7 +159,7 @@ hdiutil create \
   -srcfolder "$STAGING_DIR" \
   -ov \
   -format UDZO \
-  "$DMG_PATH" >/dev/null
+  "$DMG_PATH"
 
 rm -rf "$STAGING_DIR"
 
