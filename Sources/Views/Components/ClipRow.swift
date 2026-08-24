@@ -31,43 +31,15 @@ struct ClipRow: View {
                         thumbnail
                             .overlay(alignment: .bottomTrailing) {
                                 if item.agentSource != nil, !compact {
-                                    Text("AI")
-                                        .font(.system(size: 8, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 4.5)
-                                        .padding(.vertical, 1)
-                                        .background(
-                                            LinearGradient(
-                                                colors: [Color(red: 0.62, green: 0.35, blue: 0.95), Color(red: 0.48, green: 0.22, blue: 0.85)],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            ),
-                                            in: Capsule()
-                                        )
-                                        .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.5)
+                                    sourceBadge("AI", tint: PasteMemoVisualStyle.ai)
                                 } else if item.smsMessageText != nil, !compact {
-                                    // 短信验证码角标：清新翠绿渐变胶囊
-                                    Text("OTP")
-                                        .font(.system(size: 8, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 4.5)
-                                        .padding(.vertical, 1)
-                                        .background(
-                                            LinearGradient(
-                                                colors: [Color(red: 0.22, green: 0.68, blue: 0.42), Color(red: 0.14, green: 0.54, blue: 0.32)],
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            ),
-                                            in: Capsule()
-                                        )
-                                        .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.5)
+                                    sourceBadge("OTP", tint: PasteMemoVisualStyle.otp)
                                 }
                             }
                         if item.isPinned {
                             Image(systemName: "pin.fill")
                                 .font(.system(size: 9))
-                                .foregroundStyle(.orange)
-                                .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
+                                .foregroundStyle(PasteMemoVisualStyle.pinned)
                                 .offset(x: -3, y: -3)
                         }
                     }
@@ -130,6 +102,16 @@ struct ClipRow: View {
             }
             .task(id: metricsKey) { await loadMetrics() }
         }
+    }
+
+    private func sourceBadge(_ label: String, tint: Color) -> some View {
+        Text(label)
+            .font(.system(size: 8, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 4.5)
+            .padding(.vertical, 1)
+            .background(tint, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.28), lineWidth: 0.5))
     }
 
     // MARK: - Row metrics
@@ -625,4 +607,3 @@ struct ClipRow: View {
             .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
     }
 }
-

@@ -9,56 +9,56 @@ struct LocalBackupDestination: BackupDestination {
     }
 
     func upload(data: Data, fileName: String) async throws {
-        let dir = Self.accessBackupDirectory()
-        try ensureDirectoryExists(dir)
-        let fileURL = dir.appendingPathComponent(fileName)
-        try data.write(to: fileURL, options: .atomic)
+        try Self.withAccessBackupDirectory { dir in
+            try ensureDirectoryExists(dir)
+            let fileURL = dir.appendingPathComponent(fileName)
+            try data.write(to: fileURL, options: .atomic)
+        }
     }
 
     func download(fileName: String) async throws -> Data {
-        let dir = Self.accessBackupDirectory()
-        let fileURL = dir.appendingPathComponent(fileName)
-        return try Data(contentsOf: fileURL)
+        try Self.withAccessBackupDirectory { dir in
+            try Data(contentsOf: dir.appendingPathComponent(fileName))
+        }
     }
 
     func list() async throws -> [BackupMetadata] {
-        let dir = Self.accessBackupDirectory()
-        guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
-
-        let contents = try FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: .skipsHiddenFiles
-        )
-
-        return contents
-            .filter { $0.pathExtension == "pastememo" }
-            .compactMap { parseMetadata(from: $0) }
-            .sorted { $0.createdAt > $1.createdAt }
+        try Self.withAccessBackupDirectory { dir in
+            guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.fileSizeKey],
+                options: .skipsHiddenFiles
+            )
+            return contents
+                .filter { $0.pathExtension == "pastememo" }
+                .compactMap { parseMetadata(from: $0) }
+                .sorted { $0.createdAt > $1.createdAt }
+        }
     }
 
     func delete(fileName: String) async throws {
-        let dir = Self.accessBackupDirectory()
-        let fileURL = dir.appendingPathComponent(fileName)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        try FileManager.default.removeItem(at: fileURL)
+        try Self.withAccessBackupDirectory { dir in
+            let fileURL = dir.appendingPathComponent(fileName)
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+            try FileManager.default.removeItem(at: fileURL)
+        }
     }
 
     /// Synchronous list for UI — avoids async timing issues.
     func listSync() -> [BackupMetadata] {
-        let dir = Self.accessBackupDirectory()
-        guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
-
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: [.fileSizeKey],
-            options: .skipsHiddenFiles
-        ) else { return [] }
-
-        return contents
-            .filter { $0.pathExtension == "pastememo" }
-            .compactMap { parseMetadata(from: $0) }
-            .sorted { $0.createdAt > $1.createdAt }
+        (try? Self.withAccessBackupDirectory { dir in
+            guard FileManager.default.fileExists(atPath: dir.path) else { return [] }
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: dir,
+                includingPropertiesForKeys: [.fileSizeKey],
+                options: .skipsHiddenFiles
+            )
+            return contents
+                .filter { $0.pathExtension == "pastememo" }
+                .compactMap { parseMetadata(from: $0) }
+                .sorted { $0.createdAt > $1.createdAt }
+        }) ?? []
     }
 
     // MARK: - Directory Management
@@ -74,17 +74,20 @@ struct LocalBackupDestination: BackupDestination {
         return defaultDirectory
     }
 
-    /// Access path with security scope activated. Use for all file I/O.
-    static func accessBackupDirectory() -> URL {
+    /// Balance every security-scope acquisition with a release. Keeping a scope
+    /// open across repeated scheduled backups consumes sandbox extension handles.
+    private static func withAccessBackupDirectory<T>(_ body: (URL) throws -> T) rethrows -> T {
         if let bookmarked = resolveBookmark() {
-            _ = bookmarked.startAccessingSecurityScopedResource()
-            return bookmarked
+            let didStart = bookmarked.startAccessingSecurityScopedResource()
+            defer {
+                if didStart { bookmarked.stopAccessingSecurityScopedResource() }
+            }
+            return try body(bookmarked)
         }
-        // Fallback: saved path string (works for dirs the app already has access to)
         if let saved = UserDefaults.standard.string(forKey: "backupLocalPath"), !saved.isEmpty {
-            return URL(fileURLWithPath: saved)
+            return try body(URL(fileURLWithPath: saved))
         }
-        return defaultDirectory
+        return try body(defaultDirectory)
     }
 
     static var defaultDirectory: URL {
@@ -104,6 +107,7 @@ struct LocalBackupDestination: BackupDestination {
 
     static func resetToDefault() {
         UserDefaults.standard.removeObject(forKey: BOOKMARK_KEY)
+        UserDefaults.standard.removeObject(forKey: "backupLocalPath")
     }
 
     // MARK: - Security-Scoped Bookmark

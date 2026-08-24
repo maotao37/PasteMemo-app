@@ -945,24 +945,17 @@ struct QuickPanelView: View {
                 .foregroundStyle(isActive ? Color.white : Color(nsColor: .secondaryLabelColor))
                 .background(
                     isActive
-                        ? AnyShapeStyle(
-                            LinearGradient(
-                                colors: [Color.accentColor, Color.accentColor.opacity(0.88)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        : AnyShapeStyle(Color.primary.opacity(0.05)),
+                        ? AnyShapeStyle(Color.accentColor)
+                        : AnyShapeStyle(PasteMemoVisualStyle.subtleFill),
                     in: Capsule()
                 )
                 .overlay(
                     Capsule()
                         .strokeBorder(
-                            isActive ? Color.white.opacity(0.25) : Color.primary.opacity(0.04),
+                            isActive ? Color.white.opacity(0.24) : PasteMemoVisualStyle.subtleStroke,
                             lineWidth: 0.5
                         )
                 )
-                .shadow(color: isActive ? Color.accentColor.opacity(0.28) : .clear, radius: 3, y: 1)
         }
         .buttonStyle(.plain)
     }

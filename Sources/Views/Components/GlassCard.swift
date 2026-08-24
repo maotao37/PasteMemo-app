@@ -5,6 +5,7 @@ struct GlassCard<Content: View>: View {
     var padding: CGFloat = 16
     var cornerRadius: CGFloat = 12
     let content: Content
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(padding: CGFloat = 16, cornerRadius: CGFloat = 12, @ViewBuilder content: () -> Content) {
         self.padding = padding
@@ -16,7 +17,7 @@ struct GlassCard<Content: View>: View {
         content
             .padding(padding)
             .background {
-                if #available(macOS 26.0, *) {
+                if #available(macOS 26.0, *), !reduceTransparency {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(.ultraThinMaterial)
                         .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
@@ -38,15 +39,15 @@ struct GlassCard<Content: View>: View {
                         .shadow(color: .black.opacity(0.04), radius: 10, y: 3)
                 } else {
                     RoundedRectangle(cornerRadius: cornerRadius)
-                        .fill(.background)
-                        .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
                         .overlay(
                             RoundedRectangle(cornerRadius: cornerRadius)
                                 .strokeBorder(
                                     LinearGradient(
                                         colors: [
-                                            Color.white.opacity(0.25),
-                                            Color.primary.opacity(0.08)
+                                            Color.white.opacity(0.18),
+                                            PasteMemoVisualStyle.subtleStroke
                                         ],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
@@ -58,4 +59,3 @@ struct GlassCard<Content: View>: View {
             }
     }
 }
-

@@ -78,6 +78,7 @@ final class ClipboardManager: ObservableObject {
     // MARK: - Monitoring
 
     func startMonitoring() {
+        guard timer == nil else { return }
         lastChangeCount = NSPasteboard.general.changeCount
         startAppSwitchTracking()
         timer = Timer.scheduledTimer(withTimeInterval: CLIPBOARD_POLL_INTERVAL, repeats: true) { [weak self] _ in

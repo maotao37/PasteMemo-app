@@ -50,15 +50,7 @@ struct AsyncPreviewImageView: View {
 
     @MainActor
     private func loadImage() async {
-        var resolvedData = data
-        if resolvedData == nil, let fileURL = fallbackFileURL {
-            // 磁盘读取放后台线程，避免大图卡主线程
-            resolvedData = await Task.detached(priority: .userInitiated) {
-                try? Data(contentsOf: fileURL)
-            }.value
-            guard !Task.isCancelled else { return }
-        }
-        guard let data = resolvedData else {
+        guard data != nil || fallbackFileURL != nil else {
             image = nil
             thumbnail = nil
             isLoading = false
@@ -75,17 +67,26 @@ struct AsyncPreviewImageView: View {
         image = nil
         isLoading = true
 
-        if let cachedThumbnail = ImageCache.shared.cachedThumbnail(for: cacheKey, size: thumbnailSize) {
-            thumbnail = cachedThumbnail
-        } else {
-            let thumbnailTask = ImageCache.shared.thumbnailTask(for: data, key: cacheKey, size: thumbnailSize)
-            _ = await thumbnailTask.value
-            guard !Task.isCancelled else { return }
-            thumbnail = ImageCache.shared.cachedThumbnail(for: cacheKey, size: thumbnailSize)
-        }
+        if let data {
+            if let cachedThumbnail = ImageCache.shared.cachedThumbnail(for: cacheKey, size: thumbnailSize) {
+                thumbnail = cachedThumbnail
+            } else {
+                let thumbnailTask = ImageCache.shared.thumbnailTask(for: data, key: cacheKey, size: thumbnailSize)
+                _ = await thumbnailTask.value
+                guard !Task.isCancelled else { return }
+                thumbnail = ImageCache.shared.cachedThumbnail(for: cacheKey, size: thumbnailSize)
+            }
 
-        let previewTask = ImageCache.shared.previewTask(for: data, key: cacheKey, maxDimension: maxPixelSize)
-        _ = await previewTask.value
+            let previewTask = ImageCache.shared.previewTask(for: data, key: cacheKey, maxDimension: maxPixelSize)
+            _ = await previewTask.value
+        } else if let fileURL = fallbackFileURL {
+            let previewTask = ImageCache.shared.previewTask(
+                forFileAt: fileURL,
+                key: cacheKey,
+                maxDimension: maxPixelSize
+            )
+            _ = await previewTask.value
+        }
 
         guard !Task.isCancelled else { return }
         image = ImageCache.shared.cachedPreview(for: cacheKey, maxDimension: maxPixelSize)
