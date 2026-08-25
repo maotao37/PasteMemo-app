@@ -1251,6 +1251,7 @@ struct QuickPanelView: View {
                             footerKey("⇧↵", L10n.tr("quick.pasteNewLine"))
                         }
                         if !compact {
+                            footerKey("⌥↵", L10n.tr("cmd.pasteAsFile"))
                             footerKey("⌘↵", quickPanelAutoPaste ? L10n.tr("action.pasteAsPlainText") : L10n.tr("cmd.copyAsPlainText"))
                         }
                     } else {
@@ -1260,6 +1261,9 @@ struct QuickPanelView: View {
                                 if !(cur.imageData != nil && canPasteToFinderFolder), !canSaveTextToFolder {
                                     footerKey("⇧↵", L10n.tr("quick.pasteNewLine"))
                                 }
+                            }
+                            if !compact {
+                                footerKey("⌥↵", L10n.tr("cmd.pasteAsFile"))
                             }
                             if !compact, let cmdEnterLabel = cmdEnterFooterLabel(for: cur) {
                                 footerKey("⌘↵", cmdEnterLabel)
@@ -1550,6 +1554,7 @@ struct QuickPanelView: View {
             let hasShift = event.modifierFlags.contains(.shift)
             let hasCmd = event.modifierFlags.contains(.command)
             let hasControl = event.modifierFlags.contains(.control)
+            let hasOption = event.modifierFlags.contains(.option)
 
             if showCommandPalette {
                 // NSPopover 内的键盘监听偶发收不到字母键，这里只对高频字母快捷键做一层兜底，
@@ -1756,6 +1761,10 @@ struct QuickPanelView: View {
                 if let textView = event.window?.firstResponder as? NSTextView,
                    textView.hasMarkedText() {
                     return event
+                }
+                if hasOption, !hasCmd, !hasControl, !hasShift {
+                    handlePasteAsFiles()
+                    return nil
                 }
                 // ⌘⇧↩ is the one-shot "paste and destroy" shortcut, gated to
                 // single-selection items that aren't pinned / favourited / in a
@@ -2234,6 +2243,36 @@ struct QuickPanelView: View {
             QuickPanelWindowController.shared.dismiss()
         }
         ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
+    }
+
+    private func handlePasteAsFiles() {
+        let items = isMultiSelected ? currentItems : (currentItem.map { [$0] } ?? [])
+        guard !items.isEmpty else { return }
+
+        let fileURLs = clipboardManager.fileURLsForPaste(items)
+        guard !fileURLs.isEmpty else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        clipboardManager.writeFileURLsToPasteboard(pasteboard, paths: fileURLs.map(\.path))
+        pasteboard.markAsPasteMemoWrite()
+        clipboardManager.lastChangeCount = pasteboard.changeCount
+
+        if items.count == 1 {
+            markItemUsed(items[0])
+        } else if !QuickPanelWindowController.shared.isPinned {
+            bumpLastUsedPreservingOrder(items)
+        }
+        SoundManager.playPaste()
+
+        let appToRestore = QuickPanelWindowController.shared.previousApp
+        QuickPanelWindowController.shared.dismiss()
+        if let app = appToRestore {
+            app.activate()
+            clipboardManager.simulatePaste(targetApp: app)
+        } else {
+            ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
+        }
     }
 
     private func handleDeleteSelected() {

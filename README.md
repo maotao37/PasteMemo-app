@@ -121,6 +121,7 @@ Make PasteMemo a clipboard context layer for AI Agents (Claude Code, Cursor, Cod
 | Left / Right | Switch content type |
 | Enter | Paste selected item |
 | Shift+Enter | Paste and press Enter |
+| Option+Enter | Convert selected content to files and paste |
 | Cmd+K | Open Quick Actions |
 | Cmd+F | Focus search |
 | Esc | Close panel |

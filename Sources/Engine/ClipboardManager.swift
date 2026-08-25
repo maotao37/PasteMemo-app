@@ -1303,6 +1303,76 @@ final class ClipboardManager: ObservableObject {
         pasteboard.setPropertyList(paths, forType: pboardType)
     }
 
+    /// Materialise clip contents as file URLs for the Option+Return "Paste as File"
+    /// action. Existing file-backed clips keep their original URLs; text and raw
+    /// images are written to a per-paste temporary directory so the receiving app
+    /// gets normal Finder-style file paste representations.
+    func fileURLsForPaste(_ items: [ClipItem]) -> [URL] {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PasteMemo-Paste", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        var result: [URL] = []
+        for item in items {
+            let paths = item.content.components(separatedBy: "\n").filter { !$0.isEmpty }
+            switch item.contentType {
+            case .file, .video, .audio, .document, .archive, .application:
+                result.append(contentsOf: existingFileURLs(for: paths))
+            case .image:
+                let sourceURLs = item.content == "[Image]" ? [] : existingFileURLs(for: paths)
+                if !sourceURLs.isEmpty {
+                    result.append(contentsOf: sourceURLs)
+                } else if let data = item.imageBytesForExport(),
+                          let url = writePasteFile(data, fileExtension: Self.sniffImageExtension(from: data), directory: directory) {
+                    result.append(url)
+                }
+            case .mixed:
+                result.append(contentsOf: existingFileURLs(for: item.resolvedFilePaths))
+                if let data = item.imageBytesForExport(),
+                   let url = writePasteFile(data, fileExtension: Self.sniffImageExtension(from: data), directory: directory) {
+                    result.append(url)
+                }
+                if !item.content.isEmpty, item.content != "[Mixed]",
+                   let url = writePasteFile(Data(item.content.utf8), fileExtension: item.resolvedFileExtension, directory: directory) {
+                    result.append(url)
+                }
+            case .link:
+                guard !item.content.isEmpty else { continue }
+                let plist: NSDictionary = ["URL": item.content]
+                if let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0),
+                   let url = writePasteFile(data, fileExtension: "webloc", directory: directory) {
+                    result.append(url)
+                }
+            default:
+                guard !item.content.isEmpty,
+                      let url = writePasteFile(Data(item.content.utf8), fileExtension: item.resolvedFileExtension, directory: directory) else { continue }
+                result.append(url)
+            }
+        }
+        return result
+    }
+
+    private func existingFileURLs(for paths: [String]) -> [URL] {
+        paths.compactMap { path in
+            let expanded = (path as NSString).expandingTildeInPath
+            guard FileManager.default.fileExists(atPath: expanded) else { return nil }
+            return URL(fileURLWithPath: expanded)
+        }
+    }
+
+    private func writePasteFile(_ data: Data, fileExtension: String, directory: URL) -> URL? {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let proposedURL = directory.appendingPathComponent("PasteMemo_\(timestamp).\(fileExtension)")
+        let url = Self.uniqueDestination(proposedURL)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
     private func writeFilePathsToPasteboard(_ pasteboard: NSPasteboard, content: String) {
         let paths = content.components(separatedBy: "\n").filter { !$0.isEmpty }
         writeFileURLsToPasteboard(pasteboard, paths: paths)
