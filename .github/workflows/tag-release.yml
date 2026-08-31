@@ -1,0 +1,121 @@
+# Author: mao.tao
+name: Release on Tag
+
+# 当向 GitHub 推送以 v 开头的 Tag（例如 v1.0.0）时自动触发
+# 同时支持在 Actions 页面手动点击（workflow_dispatch）触发
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号（例如 v1.0.0）'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-dmgs:
+    name: 构建 DMG (${{ matrix.arch }})
+    # The app uses Vision APIs introduced in the macOS 26 SDK.
+    runs-on: macos-26
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 验证 Xcode 26 与 Swift 6 环境
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: 解析版本号
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          # 去掉前缀 v 作为内部打包版本号
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: 构建并打包 DMG (${{ matrix.arch }})
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          bash -x ./scripts/package.sh
+
+      - name: 生成 SHA256 校验和文件
+        run: |
+          cd dist
+          shasum -a 256 *.dmg > SHA256SUMS-${{ matrix.arch }}.txt
+          cat SHA256SUMS-${{ matrix.arch }}.txt
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: |
+            dist/*.dmg
+            dist/SHA256SUMS-*.txt
+          if-no-files-found: error
+
+  publish-release:
+    name: 发布 GitHub Release
+    needs: build-dmgs
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 获取 Tag 信息
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 下载各架构构建产物
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: 汇总 SHA256 校验和
+        run: |
+          cd release-artifacts
+          cat SHA256SUMS-*.txt > SHA256SUMS.txt
+          rm -f SHA256SUMS-*.txt
+          ls -la
+
+      - name: 创建并发布 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release_info.outputs.tag }}
+        run: |
+          # 如果 Release 已经存在则更新上传，如果不存在则自动创建并生成更新日志
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在，上传构建产物..."
+            gh release upload "$TAG" release-artifacts/* --clobber
+          else
+            echo "创建新 Release $TAG 并发布..."
+            gh release create "$TAG" release-artifacts/* \
+              --title "PasteMemo $TAG" \
+              --generate-notes \
+              --draft=false \
+              --prerelease=false
+          fi

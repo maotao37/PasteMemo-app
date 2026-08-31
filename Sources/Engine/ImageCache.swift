@@ -77,28 +77,30 @@ final class ImageCache: @unchecked Sendable {
         let taskKey = cacheKey as String
         if cache.object(forKey: cacheKey) != nil { return Task {} }
 
-        if let existing = existingTask(for: taskKey, in: \.previewTasks) {
-            return existing
+        return taskQueue.sync {
+            if let existing = previewTasks[taskKey] { return existing }
+            let task = Task<Void, Never> { @Sendable [weak self] in
+                guard let self else { return }
+                _ = self.preview(for: data, key: key, maxDimension: maxDimension)
+                self.removeTask(for: taskKey, from: \.previewTasks)
+            }
+            previewTasks[taskKey] = task
+            return task
         }
-
-        let task = Task<Void, Never> { @Sendable [weak self] in
-            guard let self else { return }
-            _ = self.preview(for: data, key: key, maxDimension: maxDimension)
-            self.removeTask(for: taskKey, from: \.previewTasks)
-        }
-
-        storeTask(task, for: taskKey, in: \.previewTasks)
-        return task
     }
 
     func preview(forFileAt url: URL, key: String, maxDimension: CGFloat) -> NSImage? {
         let cacheKey = previewCacheKey(for: key, maxDimension: maxDimension)
         if let cached = cache.object(forKey: cacheKey) { return cached }
 
-        guard let data = ClipboardManager.loadOriginalImageData(at: url.path) else {
+        // Downsample from the file URL. Reading Data(contentsOf:) first retains the
+        // full source alongside the decoded bitmap and can spike hundreds of MB for
+        // RAW/TIFF screenshots even though the UI only needs a screen-sized preview.
+        guard let image = downsample(fileAt: url, maxPixelSize: maxDimension * 2) else {
             return nil
         }
-        return preview(for: data, key: key, maxDimension: maxDimension)
+        cache.setObject(image, forKey: cacheKey, cost: decodedCost(image))
+        return image
     }
 
     func previewTask(forFileAt url: URL, key: String, maxDimension: CGFloat) -> Task<Void, Never> {
@@ -106,18 +108,16 @@ final class ImageCache: @unchecked Sendable {
         let taskKey = "filepreview_\(cacheKey)" as String
         if cache.object(forKey: cacheKey) != nil { return Task {} }
 
-        if let existing = existingTask(for: taskKey, in: \.previewTasks) {
-            return existing
+        return taskQueue.sync {
+            if let existing = previewTasks[taskKey] { return existing }
+            let task = Task<Void, Never> { @Sendable [weak self] in
+                guard let self else { return }
+                _ = self.preview(forFileAt: url, key: key, maxDimension: maxDimension)
+                self.removeTask(for: taskKey, from: \.previewTasks)
+            }
+            previewTasks[taskKey] = task
+            return task
         }
-
-        let task = Task<Void, Never> { @Sendable [weak self] in
-            guard let self else { return }
-            _ = self.preview(forFileAt: url, key: key, maxDimension: maxDimension)
-            self.removeTask(for: taskKey, from: \.previewTasks)
-        }
-
-        storeTask(task, for: taskKey, in: \.previewTasks)
-        return task
     }
 
     func thumbnailTask(for data: Data, key: String, size: CGFloat) -> Task<Void, Never> {
@@ -125,18 +125,16 @@ final class ImageCache: @unchecked Sendable {
         let taskKey = cacheKey as String
         if cache.object(forKey: cacheKey) != nil { return Task {} }
 
-        if let existing = existingTask(for: taskKey, in: \.thumbnailTasks) {
-            return existing
+        return taskQueue.sync {
+            if let existing = thumbnailTasks[taskKey] { return existing }
+            let task = Task<Void, Never> { @Sendable [weak self] in
+                guard let self else { return }
+                _ = self.thumbnail(for: data, key: key, size: size)
+                self.removeTask(for: taskKey, from: \.thumbnailTasks)
+            }
+            thumbnailTasks[taskKey] = task
+            return task
         }
-
-        let task = Task<Void, Never> { @Sendable [weak self] in
-            guard let self else { return }
-            _ = self.thumbnail(for: data, key: key, size: size)
-            self.removeTask(for: taskKey, from: \.thumbnailTasks)
-        }
-
-        storeTask(task, for: taskKey, in: \.thumbnailTasks)
-        return task
     }
 
     func cachedVideoDuration(forPath path: String) -> String? {
@@ -150,62 +148,41 @@ final class ImageCache: @unchecked Sendable {
             return Task {}
         }
 
-        if let existing = existingTask(for: path, in: \.videoThumbnailTasks) {
-            return existing
-        }
+        return taskQueue.sync {
+            if let existing = videoThumbnailTasks[path] { return existing }
+            let task = Task<Void, Never> { @Sendable [weak self, path] in
+                guard let self else { return }
+                guard FileManager.default.fileExists(atPath: path) else {
+                    self.removeTask(for: path, from: \.videoThumbnailTasks)
+                    return
+                }
 
-        let task = Task<Void, Never> { @Sendable [weak self, path] in
-            guard let self else { return }
-            guard FileManager.default.fileExists(atPath: path) else {
+                let url = URL(fileURLWithPath: path)
+                let asset = AVURLAsset(url: url)
+                let generator = AVAssetImageGenerator(asset: asset)
+                generator.appliesPreferredTrackTransform = true
+                generator.maximumSize = CGSize(width: 800, height: 800)
+
+                if let result = try? await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600)) {
+                    let cgImage = result.image
+                    let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    self.setVideoThumbnail(image, forPath: path)
+                }
+
+                if let seconds = try? await CMTimeGetSeconds(asset.load(.duration)) {
+                    self.setVideoDuration(Self.formatDuration(seconds), forPath: path)
+                }
+
                 self.removeTask(for: path, from: \.videoThumbnailTasks)
-                return
             }
-
-            let url = URL(fileURLWithPath: path)
-            let asset = AVURLAsset(url: url)
-            let generator = AVAssetImageGenerator(asset: asset)
-            generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 800, height: 800)
-
-            if let result = try? await generator.image(at: CMTime(seconds: 1, preferredTimescale: 600)) {
-                let cgImage = result.image
-                let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                self.setVideoThumbnail(image, forPath: path)
-            }
-
-            if let seconds = try? await CMTimeGetSeconds(asset.load(.duration)) {
-                self.setVideoDuration(Self.formatDuration(seconds), forPath: path)
-            }
-
-            self.removeTask(for: path, from: \.videoThumbnailTasks)
+            videoThumbnailTasks[path] = task
+            return task
         }
-
-        storeTask(task, for: path, in: \.videoThumbnailTasks)
-        return task
     }
 
     private func setVideoDuration(_ duration: String, forPath path: String) {
         videoMetadataQueue.sync {
             videoDurations[path] = duration
-        }
-    }
-
-    private func existingTask(
-        for key: String,
-        in keyPath: KeyPath<ImageCache, [String: Task<Void, Never>]>
-    ) -> Task<Void, Never>? {
-        taskQueue.sync {
-            self[keyPath: keyPath][key]
-        }
-    }
-
-    private func storeTask(
-        _ task: Task<Void, Never>,
-        for key: String,
-        in keyPath: ReferenceWritableKeyPath<ImageCache, [String: Task<Void, Never>]>
-    ) {
-        taskQueue.sync {
-            self[keyPath: keyPath][key] = task
         }
     }
 
@@ -292,6 +269,22 @@ final class ImageCache: @unchecked Sendable {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary) else {
             return nil
         }
+
+        return downsample(source: source, maxPixelSize: maxPixelSize)
+    }
+
+    private func downsample(fileAt url: URL, maxPixelSize: CGFloat) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(
+            url as CFURL,
+            [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else {
+            return nil
+        }
+
+        return downsample(source: source, maxPixelSize: maxPixelSize)
+    }
+
+    private func downsample(source: CGImageSource, maxPixelSize: CGFloat) -> NSImage? {
 
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

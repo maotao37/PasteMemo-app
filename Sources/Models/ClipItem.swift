@@ -38,6 +38,38 @@ enum ClipContentType: String, Codable, CaseIterable {
         .text, .code, .link, .image, .video, .audio, .document, .archive, .application, .color, .file
     ]
 
+    /// Types exposed in Appearance settings. Legacy email/phone records follow
+    /// the Text color so old data stays visually consistent without adding
+    /// obsolete categories to the settings UI.
+    static let colorConfigurableCases: [ClipContentType] = defaultVisibleCases + [.mixed]
+
+    var colorConfigurationType: ClipContentType {
+        switch self {
+        case .email, .phone: .text
+        default: self
+        }
+    }
+
+    /// Balanced semantic defaults with enough separation to remain scannable
+    /// in both light and dark appearances.
+    var defaultColorHex: String {
+        switch colorConfigurationType {
+        case .text: "#5E6AD2"
+        case .code: "#30A46C"
+        case .link: "#0A84FF"
+        case .image: "#BF5AF2"
+        case .video: "#FF375F"
+        case .audio: "#FF9F0A"
+        case .document: "#32ADE6"
+        case .archive: "#8E8E93"
+        case .application: "#64D2FF"
+        case .color: "#FFD60A"
+        case .file: "#AC8E68"
+        case .mixed: "#AF52DE"
+        case .email, .phone: "#5E6AD2"
+        }
+    }
+
     /// Content types shown in the automation rule editor's content-type picker.
     /// Grouped by semantic bucket (text → media → files) and omits legacy types
     /// (`.email`, `.phone`) plus `.mixed` (too broad to target directly).
@@ -226,6 +258,13 @@ final class ClipItem {
         if (contentType == .image || contentType == .mixed), imageData != nil {
             self.ocrStatus = OCRStatus.pending.rawValue
         }
+    }
+
+    /// 重置已失效的富文本与剪贴板快照（当文本内容被编辑或发生变更时调用）
+    func resetStaleSnapshots() {
+        self.richTextData = nil
+        self.richTextType = nil
+        self.pasteboardSnapshot = nil
     }
 
     /// Parsed file paths from `filePaths` (newline-separated). Empty array if nil/empty.

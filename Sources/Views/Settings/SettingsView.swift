@@ -52,6 +52,8 @@ struct SettingsView: View {
         case .privacy: PrivacyTab()
         case .aiAgents: AIAgentIntegrationView()
         case .automation: AutomationTab()
+        case .templates: TemplateLibraryView()
+        case .statistics: StorageStatisticsView()
         case .data: DataTab()
         case .sponsor: SponsorTab()
         case .about: AboutTab()
@@ -63,7 +65,7 @@ struct SettingsView: View {
 
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case general, appearance, quickPanel, preview
-    case shortcuts, relay, privacy, aiAgents, automation, data
+    case shortcuts, relay, privacy, aiAgents, automation, templates, statistics, data
     case sponsor, about
 
     var id: String { rawValue }
@@ -71,10 +73,10 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     /// 功能设置：基础(通用/外观) → 快捷面板(快捷键/面板/预览与识别) → 进阶(接力/AI/自动化)。
     static let functionGroup: [SettingsCategory] =
         [.general, .appearance, .shortcuts, .quickPanel, .preview,
-         .relay, .aiAgents, .automation]
+         .relay, .aiAgents, .automation, .templates]
 
     /// 数据与隐私。
-    static let dataPrivacyGroup: [SettingsCategory] = [.privacy, .data]
+    static let dataPrivacyGroup: [SettingsCategory] = [.privacy, .statistics, .data]
 
     /// 应用信息。
     static let aboutGroup: [SettingsCategory] = [.sponsor, .about]
@@ -90,6 +92,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "settings.privacy"
         case .aiAgents: return "settings.tab.aiAgents"
         case .automation: return "settings.automation"
+        case .templates: return "settings.templates"
+        case .statistics: return "stats.storage.title"
         case .data: return "dataPorter.section"
         case .sponsor: return "settings.sponsor"
         case .about: return "settings.about"
@@ -107,6 +111,8 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .privacy: return "lock.shield"
         case .aiAgents: return "sparkles.rectangle.stack"
         case .automation: return "gearshape.2"
+        case .templates: return "text.badge.plus"
+        case .statistics: return "chart.bar.xaxis"
         case .data: return "externaldrive"
         case .sponsor: return "heart"
         case .about: return "info.circle"
@@ -163,10 +169,10 @@ struct SMSCodeSettingsSection: View {
         }
     }
 
-    /// Feedback sentence with an inline tappable link — built as AttributedString
-    /// so the link keeps its accent color inside the secondary-styled footer.
+    /// 带内联可点击链接的反馈文案 — 使用 AttributedString 构建，
+    /// 确保链接在二级样式的页脚中保持强调色。
     private var feedbackLine: AttributedString {
-        var line = AttributedString(L10n.tr("settings.smsCode.feedback") + " ")
+        let line = AttributedString(L10n.tr("settings.smsCode.feedback") + " ")
         var link = AttributedString(L10n.tr("settings.smsCode.feedbackLink"))
         link.link = URL(string: "https://github.com/lifedever/PasteMemo-app/issues")
         link.foregroundColor = Color.accentColor
@@ -348,6 +354,7 @@ struct AppearancePane: View {
     @AppStorage("appearanceMode") private var appearanceMode = "system"
     @AppStorage("menuBarIconStyle") private var menuBarIconStyle = "outline"
     @AppStorage(MenuBarLeftClickAction.storageKey) private var menuBarLeftClickActionRaw = MenuBarLeftClickAction.menu.rawValue
+    @State private var typeColors = ClipTypeColorStore.shared
 
     var body: some View {
         Form {
@@ -386,6 +393,44 @@ struct AppearancePane: View {
                     }
                 }
                 .help(L10n.tr("settings.menuBar.leftClickAction.help"))
+            }
+
+            Section {
+                ForEach(ClipContentType.colorConfigurableCases, id: \.rawValue) { type in
+                    HStack(spacing: 10) {
+                        Image(systemName: type.icon)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(typeColors.color(for: type))
+                            .frame(width: 24, height: 24)
+                            .background(typeColors.color(for: type).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        Text(type.label)
+                        Spacer()
+                        Text(typeColors.hex(for: type))
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        ColorPicker(
+                            type.label,
+                            selection: Binding(
+                                get: { typeColors.color(for: type) },
+                                set: { typeColors.setColor($0, for: type) }
+                            ),
+                            supportsOpacity: false
+                        )
+                        .labelsHidden()
+                    }
+                }
+                HStack {
+                    Spacer()
+                    Button {
+                        typeColors.resetAll()
+                    } label: {
+                        Label(L10n.tr("settings.typeColors.reset"), systemImage: "arrow.counterclockwise")
+                    }
+                }
+            } header: {
+                Text(L10n.tr("settings.typeColors"))
+            } footer: {
+                Text(L10n.tr("settings.typeColors.help"))
             }
         }
         .formStyle(.grouped)

@@ -89,9 +89,8 @@ struct PasteMemoApp: App {
                     AppMenuActions.showNewGroupAlert()
                 }
                 Button(L10n.tr("menu.newSmartGroup")) {
-                    // TODO: Smart group creation
+                    AppMenuActions.showNewSmartGroupAlert()
                 }
-                .disabled(true)
                 Divider()
                 Button(L10n.tr("settings.automation.manage")) {
                     AppAction.shared.openAutomationManager?()
@@ -320,7 +319,7 @@ struct PasteMemoApp: App {
     }
 
     static let sharedModelContainer: ModelContainer = {
-        let schema = Schema([ClipItem.self, AutomationRule.self, SmartGroup.self])
+        let schema = Schema([ClipItem.self, AutomationRule.self, SmartGroup.self, TemplateSnippet.self])
         let bundleID = Bundle.main.bundleIdentifier ?? "com.lifedever.pastememo"
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let storeDir = appSupport.appendingPathComponent(bundleID)

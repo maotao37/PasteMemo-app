@@ -9,20 +9,46 @@ final class GroupEditorPanel {
         let name: String
         let icon: String
         let preservesItems: Bool
+        let color: String?
+        let layoutRaw: String
+        let isQuickAccess: Bool
+        let kindRaw: String
+        let smartFilter: SmartGroupFilter
     }
 
-    static func show(name: String = "", icon: String = "folder", preservesItems: Bool = false) -> Result? {
-        let viewModel = GroupEditorViewModel(name: name, icon: icon, preservesItems: preservesItems)
+    static func show(
+        name: String = "",
+        icon: String = "folder",
+        preservesItems: Bool = false,
+        color: String? = nil,
+        layoutRaw: String = PinboardLayout.list.rawValue,
+        isQuickAccess: Bool = false,
+        isSmart: Bool = false,
+        smartFilter: SmartGroupFilter = SmartGroupFilter()
+    ) -> Result? {
+        let height: CGFloat = isSmart ? 690 : 560
+        let viewModel = GroupEditorViewModel(
+            name: name,
+            icon: icon,
+            preservesItems: preservesItems,
+            color: color,
+            layoutRaw: layoutRaw,
+            isQuickAccess: isQuickAccess,
+            isSmart: isSmart,
+            smartFilter: smartFilter
+        )
         let hostingView = NSHostingView(rootView: GroupEditorView(viewModel: viewModel))
-        hostingView.frame = NSRect(x: 0, y: 0, width: 380, height: 420)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 420, height: height)
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: height),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: true
         )
-        panel.title = name.isEmpty ? L10n.tr("action.newGroup") : L10n.tr("action.editGroup")
+        panel.title = isSmart
+            ? L10n.tr(name.isEmpty ? "menu.newSmartGroup" : "group.editSmart")
+            : L10n.tr(name.isEmpty ? "action.newGroup" : "action.editGroup")
         panel.contentView = hostingView
         panel.center()
         panel.isFloatingPanel = true
@@ -37,7 +63,16 @@ final class GroupEditorPanel {
         guard response == .OK else { return nil }
         let resultName = viewModel.name.trimmingCharacters(in: .whitespaces)
         guard !resultName.isEmpty else { return nil }
-        return Result(name: resultName, icon: viewModel.selectedIcon, preservesItems: viewModel.preservesItems)
+        return Result(
+            name: resultName,
+            icon: viewModel.selectedIcon,
+            preservesItems: viewModel.preservesItems,
+            color: viewModel.selectedColor,
+            layoutRaw: viewModel.layoutRaw,
+            isQuickAccess: viewModel.isQuickAccess,
+            kindRaw: viewModel.isSmart ? "smart" : "manual",
+            smartFilter: viewModel.smartFilter
+        )
     }
 }
 
@@ -82,17 +117,57 @@ private class GroupEditorViewModel {
     var name: String
     var selectedIcon: String
     var preservesItems: Bool
+    var selectedColor: String?
+    var layoutRaw: String
+    var isQuickAccess: Bool
+    let isSmart: Bool
+    var smartQuery: String
+    var smartContentTypeRaw: String?
+    var smartSourceApp: String
+    var smartFlagRaw: String
+    var smartRecentDays: Int
+    var smartMatchModeRaw: String
     var iconSearchText = ""
     var selectedCategory: IconCategory
 
     var onDismiss: (() -> Void)?
     var onConfirm: (() -> Void)?
 
-    init(name: String, icon: String, preservesItems: Bool) {
+    init(
+        name: String,
+        icon: String,
+        preservesItems: Bool,
+        color: String?,
+        layoutRaw: String,
+        isQuickAccess: Bool,
+        isSmart: Bool,
+        smartFilter: SmartGroupFilter
+    ) {
         self.name = name
         self.selectedIcon = icon
         self.preservesItems = preservesItems
+        self.selectedColor = color
+        self.layoutRaw = layoutRaw
+        self.isQuickAccess = isQuickAccess
+        self.isSmart = isSmart
+        self.smartQuery = smartFilter.query
+        self.smartContentTypeRaw = smartFilter.contentTypeRaw
+        self.smartSourceApp = smartFilter.sourceApp
+        self.smartFlagRaw = smartFilter.flagRaw
+        self.smartRecentDays = smartFilter.recentDays
+        self.smartMatchModeRaw = smartFilter.matchModeRaw
         self.selectedCategory = IconCategory.all[0]
+    }
+
+    var smartFilter: SmartGroupFilter {
+        SmartGroupFilter(
+            query: smartQuery,
+            contentTypeRaw: smartContentTypeRaw,
+            sourceApp: smartSourceApp,
+            flagRaw: smartFlagRaw,
+            recentDays: smartRecentDays,
+            matchModeRaw: smartMatchModeRaw
+        )
     }
 
     var filteredIcons: [String] {
@@ -105,7 +180,7 @@ private class GroupEditorViewModel {
     }
 
     var isConfirmDisabled: Bool {
-        name.trimmingCharacters(in: .whitespaces).isEmpty
+        name.trimmingCharacters(in: .whitespaces).isEmpty || (isSmart && !smartFilter.hasConditions)
     }
 }
 
@@ -216,11 +291,15 @@ private struct GroupEditorView: View {
         VStack(spacing: 0) {
             headerSection
             Divider()
+            if viewModel.isSmart {
+                smartCriteriaSection
+                Divider()
+            }
             iconPickerSection
             Divider()
             footerSection
         }
-        .frame(width: 380, height: 420)
+        .frame(width: 420, height: viewModel.isSmart ? 690 : 560)
     }
 
     private var headerSection: some View {
@@ -236,17 +315,106 @@ private struct GroupEditorView: View {
                     .font(.system(size: 14))
             }
 
-            Toggle(isOn: $viewModel.preservesItems) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L10n.tr("group.preserveItems"))
-                    Text(L10n.tr("group.preserveItems.help"))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+            if !viewModel.isSmart {
+                Toggle(isOn: $viewModel.preservesItems) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.tr("group.preserveItems"))
+                        Text(L10n.tr("group.preserveItems.help"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+            }
+
+            Toggle(L10n.tr("group.quickAccess"), isOn: $viewModel.isQuickAccess)
+                .toggleStyle(.switch)
+
+            HStack(spacing: 10) {
+                Text(L10n.tr("group.color"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Button {
+                    viewModel.selectedColor = nil
+                } label: {
+                    Image(systemName: "circle.slash")
+                        .frame(width: 22, height: 22)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+                ForEach(SmartGroup.availableColors, id: \.self) { hex in
+                    Button {
+                        viewModel.selectedColor = hex
+                    } label: {
+                        Circle()
+                            .fill(Color.pasteMemo(hex: hex) ?? .accentColor)
+                            .frame(width: 20, height: 20)
+                            .overlay {
+                                if viewModel.selectedColor == hex {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-            .toggleStyle(.switch)
+
+            Picker(L10n.tr("group.layout"), selection: $viewModel.layoutRaw) {
+                ForEach(PinboardLayout.allCases, id: \.rawValue) { layout in
+                    Label(layout.title, systemImage: layout.icon).tag(layout.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
         }
         .padding(16)
+    }
+
+    private var smartCriteriaSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(L10n.tr("group.smart.conditions"))
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Picker("", selection: $viewModel.smartMatchModeRaw) {
+                    Text(L10n.tr("group.smart.matchAll")).tag(SmartGroupMatchMode.all.rawValue)
+                    Text(L10n.tr("group.smart.matchAny")).tag(SmartGroupMatchMode.any.rawValue)
+                }
+                .labelsHidden()
+                .frame(width: 130)
+            }
+            TextField(L10n.tr("group.smart.keyword"), text: $viewModel.smartQuery)
+            HStack {
+                Picker(L10n.tr("group.smart.type"), selection: $viewModel.smartContentTypeRaw) {
+                    Text(L10n.tr("group.smart.anyType")).tag(nil as String?)
+                    ForEach(ClipContentType.ruleEditorVisibleCases, id: \.rawValue) { type in
+                        Text(type.label).tag(type.rawValue as String?)
+                    }
+                }
+                TextField(L10n.tr("group.smart.sourceApp"), text: $viewModel.smartSourceApp)
+            }
+            HStack {
+                Picker(L10n.tr("group.smart.status"), selection: $viewModel.smartFlagRaw) {
+                    Text(L10n.tr("group.smart.anyStatus")).tag(SmartGroupFlag.any.rawValue)
+                    Text(L10n.tr("filter.pinned")).tag(SmartGroupFlag.pinned.rawValue)
+                    Text(L10n.tr("group.smart.favorite")).tag(SmartGroupFlag.favorite.rawValue)
+                    Text(L10n.tr("filter.sensitive")).tag(SmartGroupFlag.sensitive.rawValue)
+                }
+                Stepper(
+                    viewModel.smartRecentDays > 0
+                        ? L10n.tr("group.smart.recentDays", viewModel.smartRecentDays)
+                        : L10n.tr("group.smart.anyTime"),
+                    value: $viewModel.smartRecentDays,
+                    in: 0...365
+                )
+            }
+            Text(L10n.tr("group.smart.help"))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     private var iconPickerSection: some View {

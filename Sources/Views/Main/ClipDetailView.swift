@@ -11,6 +11,7 @@ struct ClipDetailView: View {
     @State private var editingContent = ""
     @State private var decodedLinkImageData: Data?
     @State private var ocrCardWidth: CGFloat = 0
+    @State private var typeColors = ClipTypeColorStore.shared
     @AppStorage(OCRTaskCoordinator.enableOCRKey) private var ocrEnabled = true
 
     private var isEditableType: Bool {
@@ -117,13 +118,22 @@ struct ClipDetailView: View {
     // MARK: - Action Bar
 
     private var actionBar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(detailTitle, systemImage: item.contentType.icon)
-                .font(.headline)
-                .lineLimit(2)
+        HStack(alignment: .center, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: item.contentType.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(typeColors.color(for: item.contentType))
+                    .frame(width: 24, height: 24)
+                    .background(typeColors.color(for: item.contentType).opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
 
-            HStack {
-                Spacer()
+                Text(detailTitle)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            HStack(spacing: 6) {
                 if isEditing {
                     editButtons
                 } else {
@@ -136,6 +146,8 @@ struct ClipDetailView: View {
                 }
             }
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     private var copyButton: some View {
@@ -147,7 +159,7 @@ struct ClipDetailView: View {
             )
         } label: {
             Label(L10n.tr("action.copy"), systemImage: "doc.on.doc")
-                .font(.system(size: 12))
+                .font(.system(size: 11.5, weight: .medium))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -162,7 +174,7 @@ struct ClipDetailView: View {
                 item.isSensitive ? L10n.tr("sensitive.unmarkSensitive") : L10n.tr("sensitive.markSensitive"),
                 systemImage: item.isSensitive ? "lock.shield" : "lock.shield.fill"
             )
-            .font(.system(size: 12))
+            .font(.system(size: 11.5, weight: .medium))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -178,7 +190,7 @@ struct ClipDetailView: View {
                 item.isPinned ? L10n.tr("action.unpin") : L10n.tr("action.pin"),
                 systemImage: item.isPinned ? "pin.slash" : "pin"
             )
-            .font(.system(size: 12))
+            .font(.system(size: 11.5, weight: .medium))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -189,7 +201,7 @@ struct ClipDetailView: View {
             RelayManager.shared.addToQueue(clipItems: [item])
         } label: {
             Label(L10n.tr("relay.addToQueue"), systemImage: "arrow.right.arrow.left")
-                .font(.system(size: 12))
+                .font(.system(size: 11.5, weight: .medium))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -200,7 +212,7 @@ struct ClipDetailView: View {
             NotificationCenter.default.post(name: Notification.Name("deleteSelectedFromDetail"), object: nil)
         } label: {
             Label(L10n.tr("cmd.delete"), systemImage: "trash")
-                .font(.system(size: 12))
+                .font(.system(size: 11.5, weight: .medium))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
@@ -211,21 +223,21 @@ struct ClipDetailView: View {
         if isEditing {
             Button { saveEdit() } label: {
                 Label(L10n.tr("action.save"), systemImage: "square.and.arrow.down")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11.5, weight: .medium))
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .controlSize(.small)
 
             Button { cancelEdit() } label: {
                 Label(L10n.tr("action.cancel"), systemImage: "arrow.uturn.backward")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11.5, weight: .medium))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
         } else {
             Button { enterEditMode() } label: {
                 Label(L10n.tr("action.edit"), systemImage: "pencil")
-                    .font(.system(size: 12))
+                    .font(.system(size: 11.5, weight: .medium))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -244,14 +256,13 @@ struct ClipDetailView: View {
 
     private func saveEdit() {
         item.content = editingContent
-        if item.richTextData != nil {
-            item.richTextData = nil
-            item.richTextType = nil
-        }
+        // 内容已被修改，清空旧快照与富文本数据，防止按回车粘贴时依然输出未修改的旧内容
+        item.resetStaleSnapshots()
         item.displayTitle = ClipItem.buildTitle(
             content: item.content,
             contentType: item.contentType,
-            imageData: item.imageData
+            imageData: item.imageData,
+            filePaths: item.filePaths
         )
         item.isSensitive = SensitiveDetector.isSensitive(
             content: item.content,
@@ -411,6 +422,7 @@ struct ClipDetailView: View {
                         let fmt = colorDisplayFormat ?? parsed.originalFormat
                         item.content = updated.formatted(fmt)
                         item.displayTitle = item.content
+                        item.resetStaleSnapshots()
                     }
 
                 Text(parsed.formatted(displayFmt))
@@ -424,6 +436,7 @@ struct ClipDetailView: View {
                             colorDisplayFormat = fmt
                             item.content = parsed.formatted(fmt)
                             item.displayTitle = item.content
+                            item.resetStaleSnapshots()
                         } label: {
                             Text(fmt.rawValue)
                                 .font(.system(size: 11, weight: .medium))
@@ -687,36 +700,51 @@ struct ClipDetailView: View {
     }
 
     private var ocrCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Text("OCR")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.orange.opacity(0.12), in: Capsule())
+                    .background(Color.orange.opacity(0.14), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.orange.opacity(0.28), lineWidth: 0.5))
                 Text(ocrStatusText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let text = item.ocrText, !text.isEmpty {
-                    Button(L10n.tr("detail.ocr.copy")) {
+                    Button {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(text, forType: .string)
                         ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "doc.on.doc")
+                                .font(.system(size: 10))
+                            Text(L10n.tr("detail.ocr.copy"))
+                                .font(.system(size: 11, weight: .medium))
+                        }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
                 if OCRTaskCoordinator.shared.canRetry(item: item) {
-                    Button(L10n.tr("detail.ocr.retry")) {
+                    Button {
                         OCRTaskCoordinator.shared.retry(itemID: item.itemID)
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10))
+                            Text(L10n.tr("detail.ocr.retry"))
+                                .font(.system(size: 11, weight: .medium))
+                        }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.top, 10)
 
             Group {
@@ -739,24 +767,28 @@ struct ClipDetailView: View {
                     } action: { width in
                         ocrCardWidth = width
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 12)
                     .padding(.bottom, 10)
                 } else {
                     Text(ocrEmptyText)
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .frame(maxWidth: .infinity, minHeight: 56, alignment: .topLeading)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 12)
                         .padding(.bottom, 10)
                 }
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 10)
                 .fill(Color.primary.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
         )
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
     }
 
     private var ocrStatusText: String {
@@ -799,13 +831,13 @@ struct FileRow: View {
             Image(nsImage: systemIcon(forFile: path))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 20, height: 20)
+                .frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(URL(fileURLWithPath: path).lastPathComponent)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: .regular))
                     .lineLimit(1)
                 Text(path)
-                    .font(.system(size: 10))
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -817,25 +849,25 @@ struct FileRow: View {
                     onOpenInFinder?()
                     NSWorkspace.shared.selectFile(path, inFileViewerRootedAtPath: URL(fileURLWithPath: path).deletingLastPathComponent().path)
                 } label: {
-                    HStack(spacing: 3) {
+                    HStack(spacing: 4) {
                         Image(nsImage: NSWorkspace.shared.icon(forFile: "/System/Library/CoreServices/Finder.app"))
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 14, height: 14)
                         Text(L10n.tr("detail.openInFinder"))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11, weight: .medium))
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
         }
-        .padding(.vertical, 4)
-        .padding(.leading, 6)
-        .padding(.trailing, 12)
+        .padding(.vertical, 4.5)
+        .padding(.leading, 8)
+        .padding(.trailing, 10)
         .contentShape(Rectangle())
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 6.5)
                 .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         )
         .onHover { isHovered = $0 }
@@ -847,7 +879,7 @@ struct FileRow: View {
 struct SingleFilePreview: View {
     let path: String
     var iconSize: CGFloat = 64
-    var nameFont: Font = .system(size: 15, weight: .medium)
+    var nameFont: Font = .system(size: 15, weight: .semibold)
     /// Optional keyboard hint (e.g. "⌘O") shown next to the reveal button. The
     /// Quick Panel passes this so users see the shortcut; the main window omits it.
     var shortcutHint: String? = nil
@@ -859,11 +891,12 @@ struct SingleFilePreview: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 14) {
             Image(nsImage: systemIcon(forFile: path))
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: iconSize, height: iconSize)
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
 
             Text(URL(fileURLWithPath: path).lastPathComponent)
                 .font(nameFont)
@@ -872,7 +905,7 @@ struct SingleFilePreview: View {
                 .textSelection(.enabled)
 
             Text(path)
-                .font(.system(size: 11))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -889,22 +922,29 @@ struct SingleFilePreview: View {
                     Image(nsImage: finderAppIcon)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .frame(width: 16, height: 16)
+                        .frame(width: 15, height: 15)
                     Text(L10n.tr("detail.openInFinder"))
-                        .font(.system(size: 12))
+                        .font(.system(size: 12, weight: .medium))
                     if let shortcutHint {
-                        // Match the footer keycap style (footerKey) so it reads as a
-                        // proper shortcut chip rather than a cramped monospaced tag.
                         Text(shortcutHint)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
                             .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
-                            .padding(.leading, 2)
                     }
                 }
-                .foregroundStyle(isButtonHovered ? .primary : .secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: 6.5)
+                        .fill(isButtonHovered ? Color.primary.opacity(0.08) : Color.primary.opacity(0.04))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6.5)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        )
+                )
+                .foregroundStyle(isButtonHovered ? Color.primary : Color.secondary)
             }
             .buttonStyle(.plain)
             .onHover { isButtonHovered = $0 }

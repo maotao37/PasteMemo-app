@@ -18,6 +18,7 @@ enum BackupEngine {
         let clipItems = try context.fetch(FetchDescriptor<ClipItem>())
         let groups = (try? context.fetch(FetchDescriptor<SmartGroup>())) ?? []
         let rules = (try? context.fetch(FetchDescriptor<AutomationRule>())) ?? []
+        let templates = (try? context.fetch(FetchDescriptor<TemplateSnippet>())) ?? []
 
         let total = clipItems.count
 
@@ -33,6 +34,7 @@ enum BackupEngine {
             clipItems: clipItems,
             groups: groups,
             rules: rules,
+            templates: templates,
             to: tempURL
         ) { current, _ in
             progress(current, total, false)

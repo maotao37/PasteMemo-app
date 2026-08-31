@@ -6,6 +6,7 @@ struct DataPorterSection: View {
     @Query private var clipItems: [ClipItem]
     @Query private var groups: [SmartGroup]
     @Query private var rules: [AutomationRule]
+    @Query private var templates: [TemplateSnippet]
 
     @State private var isEncryptExport = false
     @State private var exportPassword = ""
@@ -122,6 +123,7 @@ struct DataPorterSection: View {
         let password = exportPassword
         let snapshotGroups = groups
         let snapshotRules = rules
+        let snapshotTemplates = templates
         Task { @MainActor in
             let total = clipItems.count
             var exportItems: [ExportItem] = []
@@ -141,7 +143,8 @@ struct DataPorterSection: View {
                 exportDate: Date(),
                 items: exportItems,
                 groups: snapshotGroups.map(DataPorter.buildSingleExportGroup),
-                rules: snapshotRules.map(DataPorter.buildSingleExportRule)
+                rules: snapshotRules.map(DataPorter.buildSingleExportRule),
+                templates: snapshotTemplates.map(DataPorter.buildSingleExportTemplate)
             )
             importProgress = L10n.tr("dataPorter.compressing")
             await Task.yield()
@@ -229,6 +232,7 @@ struct DataPorterSection: View {
                 progressValue = 0
 
                 ClipItemStore.isBulkOperation = true
+                defer { ClipItemStore.isBulkOperation = false }
                 let result = try await DataPorter.importItems(
                     payload: payload,
                     into: modelContext
@@ -236,7 +240,6 @@ struct DataPorterSection: View {
                     importProgress = "\(current) / \(total)"
                     progressValue = Double(current) / Double(max(total, 1))
                 }
-                ClipItemStore.isBulkOperation = false
 
                 // Keep the progress sheet on screen with a "refreshing" stage
                 // and synchronously rebuild every live store BEFORE we let the
@@ -250,8 +253,9 @@ struct DataPorterSection: View {
                 ClipItemStore.refreshAllStoresNow()
 
                 var extras: [String] = []
-                if result.importedGroups > 0 { extras.append("+\(result.importedGroups) groups") }
-                if result.importedRules > 0 { extras.append("+\(result.importedRules) rules") }
+                if result.importedGroups > 0 { extras.append(L10n.tr("dataPorter.summary.newGroups", result.importedGroups)) }
+                if result.importedRules > 0 { extras.append(L10n.tr("dataPorter.summary.newRules", result.importedRules)) }
+                if result.importedTemplates > 0 { extras.append(L10n.tr("dataPorter.summary.newTemplates", result.importedTemplates)) }
                 let extrasText = extras.isEmpty ? "" : ", " + extras.joined(separator: ", ")
                 showAlert(L10n.tr("dataPorter.importSuccess") + " (\(result.imported) imported, \(result.skipped) skipped\(extrasText))")
             } catch let error as CryptoError where error == .wrongPassword {

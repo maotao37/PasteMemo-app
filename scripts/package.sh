@@ -40,21 +40,24 @@ resolve_version() {
 VERSION="$(resolve_version)"
 APP_DIR="$DIST_DIR/${APP_NAME}.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}-${ARCH}.dmg"
-STAGING_DIR="$DIST_DIR/.dmg-staging"
+STAGING_DIR="$DIST_DIR/.dmg-staging-${ARCH}"
 
 printf '[package] building %s %s (%s)\n' "$APP_NAME" "$VERSION" "$ARCH"
-swift build -c "$CONFIGURATION" --arch "$ARCH"
+
+# Swift 6.3/Xcode 26 can crash in the CopyPropagation pass at the default
+# release optimization level. Keep the packaging build on the stable size
+# optimization used by the signed CI pipeline.
+SWIFT_OPT_FLAGS=(-Xswiftc -Osize)
+
+# 根据不同架构构建 SwiftPM 项目
+swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}"
+
+# 动态获取当前架构输出目录
+BUILD_DIR="$(swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}" --show-bin-path)"
+PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
 
 if [[ ! -x "$PRODUCT_BINARY" ]]; then
   echo "Built binary not found: $PRODUCT_BINARY" >&2
-  exit 1
-fi
-
-# Glob every *.bundle produced by SwiftPM resource targets. Hard-coding names
-# silently misses new SPM dependencies and crashes Bundle.module at runtime.
-RESOURCE_BUNDLES=("$BUILD_DIR"/*.bundle)
-if [[ ! -d "${RESOURCE_BUNDLES[0]}" ]]; then
-  echo "No SwiftPM resource bundles found in $BUILD_DIR" >&2
   exit 1
 fi
 
@@ -68,9 +71,29 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources" "$DIST_DIR"
 
 cp "$PRODUCT_BINARY" "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
+
+# 构建并复制 MCP Proxy 命令行工具（如果存在）
+swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}" --product pastememo-mcp 2>/dev/null || true
+if [[ -f "$BUILD_DIR/pastememo-mcp" ]]; then
+  cp "$BUILD_DIR/pastememo-mcp" "$APP_DIR/Contents/MacOS/pastememo-mcp"
+  chmod +x "$APP_DIR/Contents/MacOS/pastememo-mcp"
+fi
+
 cp "$ICON_FILE" "$APP_DIR/Contents/Resources/AppIcon.icns"
-for bundle in "${RESOURCE_BUNDLES[@]}"; do
-  cp -R "$bundle" "$APP_DIR/"
+
+# 复制 Localization 语言包标记目录
+for lproj in "$ROOT_DIR"/Sources/Localization/*.lproj; do
+  if [[ -d "$lproj" ]]; then
+    mkdir -p "$APP_DIR/Contents/Resources/$(basename "$lproj")"
+  fi
+done
+
+# 复制 SwiftPM 生成的所有资源 bundle（如 PermissionFlow 与本地化 bundle）
+for bundle in "$BUILD_DIR"/*.bundle; do
+  if [[ -d "$bundle" ]]; then
+    cp -R "$bundle" "$APP_DIR/Contents/Resources/"
+    cp -R "$bundle" "$APP_DIR/" 2>/dev/null || true
+  fi
 done
 
 CURRENT_YEAR="$(date +%Y)"
@@ -122,10 +145,14 @@ cat > "$APP_DIR/Contents/Info.plist" <<EOF
 EOF
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
-  printf '[package] codesigning app bundle\n'
+  printf '[package] codesigning app bundle with %s\n' "$CODESIGN_IDENTITY"
   codesign --force --deep --options runtime --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+else
+  printf '[package] ad-hoc codesigning app bundle\n'
+  codesign --force --deep --sign - "$APP_DIR" || true
 fi
 
+rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 cp -R "$APP_DIR" "$STAGING_DIR/"
 ln -s /Applications "$STAGING_DIR/Applications"
@@ -137,7 +164,7 @@ hdiutil create \
   -srcfolder "$STAGING_DIR" \
   -ov \
   -format UDZO \
-  "$DMG_PATH" >/dev/null
+  "$DMG_PATH"
 
 rm -rf "$STAGING_DIR"
 

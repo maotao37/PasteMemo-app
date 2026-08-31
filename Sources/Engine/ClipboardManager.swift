@@ -78,6 +78,7 @@ final class ClipboardManager: ObservableObject {
     // MARK: - Monitoring
 
     func startMonitoring() {
+        guard timer == nil else { return }
         lastChangeCount = NSPasteboard.general.changeCount
         startAppSwitchTracking()
         timer = Timer.scheduledTimer(withTimeInterval: CLIPBOARD_POLL_INTERVAL, repeats: true) { [weak self] _ in
@@ -683,6 +684,60 @@ final class ClipboardManager: ObservableObject {
         return true
     }
 
+    /// 检查快照中的文本内容是否与 ClipItem 当前的 content 一致。
+    /// 若包含文本且与 item.content 不一致，说明条目内容已被修改，快照已失效。
+    ///
+    /// A snapshot without a decodable text representation is deliberately treated as
+    /// stale. Replaying such a snapshot after an edit is unsafe: custom/rich UTIs may
+    /// still contain the old text while the plain `content` field has changed. Falling
+    /// through to the normal writer is the only way to guarantee that the edited value
+    /// is what reaches the target application.
+    func snapshotMatchesContent(_ data: Data, content: String) -> Bool {
+        guard
+            let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+            let dict = plist as? [String: Data],
+            !dict.isEmpty
+        else { return false }
+
+        let textTypes = [
+            NSPasteboard.PasteboardType.string.rawValue,
+            "NSStringPboardType",
+            "public.utf8-plain-text",
+            "public.plain-text",
+            "public.utf16-plain-text"
+        ]
+
+        var foundText = false
+        for typeKey in textTypes {
+            guard let textData = dict[typeKey] else { continue }
+            guard let str = decodePasteboardText(textData) else { return false }
+            foundText = true
+            if str != content { return false }
+        }
+
+        return foundText
+    }
+
+    /// Pasteboard text is normally UTF-8, but legacy `NSStringPboardType` producers
+    /// may write UTF-16. Decode the common encodings before deciding whether a snapshot
+    /// belongs to the current clip.
+    private func decodePasteboardText(_ data: Data) -> String? {
+        for encoding in [
+            String.Encoding.utf8,
+            .utf16,
+            .utf16LittleEndian,
+            .utf16BigEndian,
+            .utf32,
+            .utf32LittleEndian,
+            .utf32BigEndian
+        ] {
+            if let text = String(data: data, encoding: encoding) {
+                return text
+            }
+        }
+        return nil
+    }
+
     private func captureRichTextData(from pasteboard: NSPasteboard) -> (data: Data?, type: String?) {
         // Priority: RTFD (carries inline images — Notes, Pages, Word, TextEdit) >
         //           HTML (browsers, most modern apps) > RTF (legacy, no images).
@@ -1133,12 +1188,20 @@ final class ClipboardManager: ObservableObject {
         //
         // `restorePasteboardSnapshot` itself drops Office-private types (issue #28) so Word
         // paste doesn't get hijacked by its private internal clipboard.
-        if !textOnly, let snapshot = item.pasteboardSnapshot,
-           restorePasteboardSnapshot(snapshot, to: pasteboard) {
-            pasteboard.markAsPasteMemoWrite()
-            lastChangeCount = pasteboard.changeCount
-            skipRelayMonitorIfActive()
-            return
+        if !textOnly, let snapshot = item.pasteboardSnapshot {
+            if snapshotMatchesContent(snapshot, content: item.content),
+               restorePasteboardSnapshot(snapshot, to: pasteboard) {
+                pasteboard.markAsPasteMemoWrite()
+                lastChangeCount = pasteboard.changeCount
+                skipRelayMonitorIfActive()
+                return
+            } else {
+                // 快照失效（条目内容已被编辑修改），清理失效快照并回退到正常文本写入流程
+                item.resetStaleSnapshots()
+                if let context = item.modelContext {
+                    ClipItemStore.saveAndNotifyContent(context)
+                }
+            }
         }
 
         switch item.contentType {
@@ -1300,6 +1363,76 @@ final class ClipboardManager: ObservableObject {
         pasteboard.writeObjects(urls)
         let pboardType = NSPasteboard.PasteboardType("NSFilenamesPboardType")
         pasteboard.setPropertyList(paths, forType: pboardType)
+    }
+
+    /// Materialise clip contents as file URLs for the Option+Return "Paste as File"
+    /// action. Existing file-backed clips keep their original URLs; text and raw
+    /// images are written to a per-paste temporary directory so the receiving app
+    /// gets normal Finder-style file paste representations.
+    func fileURLsForPaste(_ items: [ClipItem]) -> [URL] {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PasteMemo-Paste", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        var result: [URL] = []
+        for item in items {
+            let paths = item.content.components(separatedBy: "\n").filter { !$0.isEmpty }
+            switch item.contentType {
+            case .file, .video, .audio, .document, .archive, .application:
+                result.append(contentsOf: existingFileURLs(for: paths))
+            case .image:
+                let sourceURLs = item.content == "[Image]" ? [] : existingFileURLs(for: paths)
+                if !sourceURLs.isEmpty {
+                    result.append(contentsOf: sourceURLs)
+                } else if let data = item.imageBytesForExport(),
+                          let url = writePasteFile(data, fileExtension: Self.sniffImageExtension(from: data), directory: directory) {
+                    result.append(url)
+                }
+            case .mixed:
+                result.append(contentsOf: existingFileURLs(for: item.resolvedFilePaths))
+                if let data = item.imageBytesForExport(),
+                   let url = writePasteFile(data, fileExtension: Self.sniffImageExtension(from: data), directory: directory) {
+                    result.append(url)
+                }
+                if !item.content.isEmpty, item.content != "[Mixed]",
+                   let url = writePasteFile(Data(item.content.utf8), fileExtension: item.resolvedFileExtension, directory: directory) {
+                    result.append(url)
+                }
+            case .link:
+                guard !item.content.isEmpty else { continue }
+                let plist: NSDictionary = ["URL": item.content]
+                if let data = try? PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0),
+                   let url = writePasteFile(data, fileExtension: "webloc", directory: directory) {
+                    result.append(url)
+                }
+            default:
+                guard !item.content.isEmpty,
+                      let url = writePasteFile(Data(item.content.utf8), fileExtension: item.resolvedFileExtension, directory: directory) else { continue }
+                result.append(url)
+            }
+        }
+        return result
+    }
+
+    private func existingFileURLs(for paths: [String]) -> [URL] {
+        paths.compactMap { path in
+            let expanded = (path as NSString).expandingTildeInPath
+            guard FileManager.default.fileExists(atPath: expanded) else { return nil }
+            return URL(fileURLWithPath: expanded)
+        }
+    }
+
+    private func writePasteFile(_ data: Data, fileExtension: String, directory: URL) -> URL? {
+        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+        let proposedURL = directory.appendingPathComponent("PasteMemo_\(timestamp).\(fileExtension)")
+        let url = Self.uniqueDestination(proposedURL)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
     }
 
     private func writeFilePathsToPasteboard(_ pasteboard: NSPasteboard, content: String) {
@@ -1857,8 +1990,7 @@ extension ClipboardManager: ClipboardControllable {
             // pasteboard. Archive-only rules (writeBack off) keep their rich text as
             // before. (issue #62)
             if actions.contains(.stripRichText) || (writeBack && textChanged) {
-                item.richTextData = nil
-                item.richTextType = nil
+                item.resetStaleSnapshots()
             }
         }
         applyMetadataActions(actions, to: item, context: context)

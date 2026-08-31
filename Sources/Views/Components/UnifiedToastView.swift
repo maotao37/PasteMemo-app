@@ -9,13 +9,14 @@ struct UnifiedToastView: View {
     let onAction: (() -> Void)?
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     private var isDark: Bool { colorScheme == .dark }
 
     var body: some View {
         HStack(spacing: 10) {
             if let iconName = descriptor.icon.systemImageName {
                 Image(systemName: iconName)
-                    .font(.system(size: 14))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(descriptor.icon.tint(isDark: isDark))
             }
             Text(descriptor.message)
@@ -26,18 +27,29 @@ struct UnifiedToastView: View {
                 actionButton(action)
             }
         }
-        // Match the pill height of the action-button variant so plain
-        // (no-action) toasts don't look visibly shorter.
-        .frame(minHeight: 22)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(
+        // 统一不同内容下 Toast 胶囊的高度与内边距，保持视觉稳定性
+        .frame(minHeight: 24)
+        .padding(.horizontal, 15)
+        .padding(.vertical, 8.5)
+        .background {
+            toastSurface
+                .shadow(color: shadowColor, radius: 16, y: 6)
+                .shadow(color: shadowColor.opacity(0.4), radius: 4, y: 1)
+        }
+        .overlay(
             Capsule()
-                .fill(panelFill)
-                .shadow(color: shadowColor, radius: 18, y: 6)
-                .shadow(color: shadowColor.opacity(0.5), radius: 4, y: 1)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            isDark ? Color.white.opacity(0.18) : Color.white.opacity(0.8),
+                            isDark ? Color.white.opacity(0.06) : Color.black.opacity(0.06)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: 0.75
+                )
         )
-        .overlay(Capsule().stroke(panelStroke, lineWidth: 0.5))
         .fixedSize()
     }
 
@@ -63,24 +75,28 @@ struct UnifiedToastView: View {
 
     // MARK: - Palette
 
-    private var panelFill: Color {
-        isDark ? Color(red: 0.17, green: 0.17, blue: 0.19) : Color(red: 0.99, green: 0.99, blue: 0.98)
+    @ViewBuilder
+    private var toastSurface: some View {
+        if #available(macOS 26.0, *), !reduceTransparency {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .glassEffect(.regular, in: Capsule())
+        } else {
+            Capsule().fill(Color(nsColor: .windowBackgroundColor))
+        }
     }
-    private var panelStroke: Color {
-        isDark ? Color.white.opacity(0.07) : Color.black.opacity(0.05)
-    }
+
     private var textColor: Color {
-        isDark ? Color(red: 0.93, green: 0.93, blue: 0.94) : Color(red: 0.08, green: 0.09, blue: 0.11)
+        .primary
     }
     private var actionColor: Color {
-        isDark ? Color(red: 0.50, green: 0.73, blue: 1.00) : Color(red: 0.00, green: 0.31, blue: 0.78)
+        .accentColor
     }
     private var actionBackground: Color {
-        isDark ? Color(red: 0.50, green: 0.73, blue: 1.00).opacity(0.18)
-               : Color(red: 0.00, green: 0.31, blue: 0.78).opacity(0.10)
+        Color.accentColor.opacity(isDark ? 0.18 : 0.10)
     }
     private var actionStroke: Color {
-        isDark ? Color(red: 0.50, green: 0.73, blue: 1.00).opacity(0.22) : Color.clear
+        Color.accentColor.opacity(isDark ? 0.24 : 0.12)
     }
     private var shadowColor: Color {
         isDark ? Color.black.opacity(0.48) : Color.black.opacity(0.14)
@@ -130,8 +146,8 @@ enum ToastIcon: Equatable {
     func tint(isDark: Bool) -> Color {
         switch self {
         case .none: .clear
-        case .success: Color(red: 0.13, green: 0.63, blue: 0.35)
-        case .info: isDark ? Color(red: 0.50, green: 0.73, blue: 1.00) : Color(red: 0.00, green: 0.31, blue: 0.78)
+        case .success: PasteMemoVisualStyle.success
+        case .info: .accentColor
         }
     }
 }

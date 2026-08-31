@@ -62,6 +62,7 @@ struct QuickPanelView: View {
     @EnvironmentObject private var layoutState: QuickPanelLayoutState
     @Environment(\.modelContext) private var modelContext
     @State private var store = ClipItemStore()
+    @State private var typeColors = ClipTypeColorStore.shared
     @State private var searchText = ""
     @State private var groupSuggestionIndex = -1
     /// Measured natural height of the `/` suggestion list. Drives a content-fitting,
@@ -98,6 +99,7 @@ struct QuickPanelView: View {
     /// true = 焦点在图片（←→↑↓ 四向移动，顶行按 ↑ 退回标签级）。
     /// 没有这层状态时，→ 移到「图片」分类的瞬间方向键就被网格吞掉，分类切换"卡死"。
     @State private var isGridFocused = false
+    @State private var isPreviewEditing = false
     @State private var cachedGroupedItems: [GroupedItem<ClipItem>] = []
     @State private var cachedHistoryRows: [ClipHistoryListBuilder.Row] = []
     @State private var cachedHistoryRowIndexByID: [PersistentIdentifier: Int] = [:]
@@ -276,8 +278,64 @@ struct QuickPanelView: View {
         lastNavigatedID = id
     }
 
+    // MARK: - Body
+
     var body: some View {
+        contentWithChanges
+            .applyQuickPanelNotifications(
+                onDismiss: handleQuickPanelWillDismiss,
+                onPinnedResignKey: { isSearchFocused = false },
+                onPasteDigit: { pasteDigitWhilePinned(index: $0) },
+                onPasteTargetChanged: { targetApp = QuickPanelWindowController.shared.previousApp },
+                onDidShow: handleQuickPanelDidShow
+            )
+            .applyQuickPanelLifecycle(
+                onAppear: handleAppear,
+                onDisappear: handleDisappear
+            )
+            .localized()
+    }
+
+    @ViewBuilder
+    private var contentWithChanges: some View {
+        contentWithSearchAndFilters
+            .onChange(of: store.items) {
+                handleStoreItemsChange()
+            }
+            .onChange(of: selectedItemIDs) {
+                isPreviewEditing = false
+            }
+            .onChange(of: layoutState.shouldShowPreview) {
+                handlePreviewLayoutChange()
+            }
+            .onChange(of: relaySplitText) {
+                handleRelaySplitChange()
+            }
+    }
+
+    @ViewBuilder
+    private var contentWithSearchAndFilters: some View {
         ZStack(alignment: .top) {
+            panelContent
+            suggestionsOverlay
+        }
+        .onChange(of: searchText) {
+            handleSearchTextChange()
+        }
+        .onChange(of: selectedFilter) {
+            handleSelectedFilterChange()
+        }
+        .onChange(of: pill) {
+            handlePillChange()
+        }
+        .onChange(of: quickPanelSecondaryRowRaw) {
+            selectedFilter = .all
+            pill = nil
+        }
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
         VStack(spacing: 0) {
             searchBar
             // 标签条排除背景拖拽：否则点分类标签时窗口跟着微拖「晃动」
@@ -305,7 +363,10 @@ struct QuickPanelView: View {
             footerBar
         }
         .frame(minWidth: 360, minHeight: 420)
-        // Floating group suggestions overlay
+    }
+
+    @ViewBuilder
+    private var suggestionsOverlay: some View {
         if isShowingSuggestions {
             VStack(spacing: 0) {
                 Spacer().frame(height: 48)
@@ -325,170 +386,164 @@ struct QuickPanelView: View {
             }
             .allowsHitTesting(true)
         }
-        } // ZStack
-        .onAppear {
-            store.configure(modelContext: modelContext)
-            rebuildGroupedItems()
-            selectDefaultHistoryItem()
-            lastSeenFirstItemID = store.queryFirstItemID()
-            installKeyMonitor()
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(50))
-                isSearchFocused = true
-            }
-        }
-        .onDisappear {
-            removeKeyMonitor()
-            store.isActive = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelWillDismiss)) { _ in
-            // isActive 必须在这里归位，不能只靠 onDisappear：面板隐藏走的是
-            // orderOut，视图仍留在窗口层级里，onDisappear 不会触发。isActive
-            // 悬在 true 会让隐藏期间的每次复制都同步跑全量 performRefresh
-            // （20k 条实测每次 ~40-90ms），而设计上的惰性路径（标记
-            // needsRefresh、下次打开时 refreshIfNeeded 消费）形同虚设。
-            store.isActive = false
-            // 关闭前清空 "/" 触发的分组建议及相关状态，避免下次打开首帧闪现
-            searchText = ""
-            groupSuggestionIndex = -1
-            pill = nil
-            showCommandPalette = false
-            suggestionsArmed = false
-            userTypedSlash = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
-            // Pinned + user clicked another app: release search focus so the text field
-            // stops dragging key status back to the panel.
-            isSearchFocused = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteDigit)) { note in
-            // 置顶时全局 ⌘1–9 命中：粘贴对应项，面板保持打开
-            guard let index = note.userInfo?["index"] as? Int else { return }
-            pasteDigitWhilePinned(index: index)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteTargetChanged)) { _ in
-            // 置顶期间用户切到别的 App，刷新底部"粘贴到 X"（previousApp 已在控制器侧更新）
-            targetApp = QuickPanelWindowController.shared.previousApp
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelDidShow)) { _ in
-            showCommandPalette = false
-            searchText = ""
-            pill = nil
-            let restoredFilter = restoredFilterOnShow()
-            selectedFilter = restoredFilter
-            isPanelPinned = false
-            suggestionsArmed = false
-            userTypedSlash = false
-            userInteractedSinceShow = false
-            isGridFocused = false
-            // 延后一小会儿再放开建议浮层，给 SwiftUI 一次 tick 把状态提交到渲染树，
-            // 避免刚 orderFrontRegardless 时显示上一次的 `/` 建议面板。
-            // 代价：打开 80ms 内如果立即输入 `/`，这一帧的建议不会渲染，
-            // 下次 searchText 变动即会正常显示，实际几乎感知不到。
-            store.isActive = true
-            // Arming the `/` suggestion overlay and consuming any pending dirty flag both
-            // need the UI state reset above to be committed first, otherwise a stale `/`
-            // dropdown can flash through. Serialize them in one Task so refresh happens
-            // strictly after arming.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(80))
-                suggestionsArmed = true
-                store.refreshIfNeeded()
-            }
-            let latestItemID = store.queryFirstItemID()
-            if latestItemID != lastSeenFirstItemID {
-                store.resetFilters()
-            } else {
-                store.updateQuery(searchText: .set(""), sourceApp: .set(nil), groupName: .set(nil))
-            }
-            lastSeenFirstItemID = latestItemID
+    }
 
-            // 恢复上次的主筛选：同步写回 store，保证首帧即为正确列表（不闪“全部”）。
-            // 此刻 pill 恒为 nil。`restoredFilterOnShow()` 已用缓存计数校验过维度/存在性；
-            // 这里再用真实 totalCount 兜底关闭期间被删/清空的组或类型。
-            if restoredFilter != .all {
-                applyFilters(primary: restoredFilter, pill: nil)
-                if store.totalCount == 0 {
-                    selectedFilter = .all
-                    applyFilters(primary: .all, pill: nil)
-                }
-            }
+    // MARK: - Lifecycle & Event Handlers
 
-            rebuildGroupedItems()
-            scrollResetToken = UUID()
-            selectDefaultHistoryItem()
-            targetApp = QuickPanelWindowController.shared.previousApp
+    private func handleAppear() {
+        store.configure(modelContext: modelContext)
+        rebuildGroupedItems()
+        selectDefaultHistoryItem()
+        lastSeenFirstItemID = store.queryFirstItemID()
+        installKeyMonitor()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
             isSearchFocused = true
         }
-        .onChange(of: searchText) {
-            if pill != nil {
-                // Pill is active — search text is just keyword within the pill's scope
-                store.searchText = searchText
-            } else if isSlashSubmenuMode {
-                // The `/` submenu is in control (query selects a group/type/app), so
-                // pause content search. When nothing matches — or the user pressed Esc
-                // to leave the submenu — we fall through and search the `/`-prefixed
-                // query literally (e.g. clips starting with "/advisor").
-                store.searchText = ""
-            } else {
-                store.searchText = searchText
-            }
-            // Default-select the first suggestion row when typing `/`
-            groupSuggestionIndex = totalSuggestionCount > 0 ? 0 : -1
+    }
+
+    private func handleDisappear() {
+        removeKeyMonitor()
+        store.isActive = false
+    }
+
+    private func handleQuickPanelWillDismiss() {
+        // isActive 必须在这里归位，不能只靠 onDisappear：面板隐藏走的是
+        // orderOut，视图仍留在窗口层级里，onDisappear 不会触发。isActive
+        // 悬在 true 会让隐藏期间的每次复制都同步跑全量 performRefresh
+        // （20k 条实测每次 ~40-90ms），而设计上的惰性路径（标记
+        // needsRefresh、下次打开时 refreshIfNeeded 消费）形同虚设。
+        store.isActive = false
+        // 关闭前清空 "/" 触发的分组建议及相关状态，避免下次打开首帧闪现
+        searchText = ""
+        groupSuggestionIndex = -1
+        pill = nil
+        showCommandPalette = false
+        suggestionsArmed = false
+        userTypedSlash = false
+        isPreviewEditing = false
+    }
+
+    private func handleQuickPanelDidShow() {
+        showCommandPalette = false
+        searchText = ""
+        pill = nil
+        let restoredFilter = restoredFilterOnShow()
+        selectedFilter = restoredFilter
+        isPanelPinned = false
+        suggestionsArmed = false
+        userTypedSlash = false
+        userInteractedSinceShow = false
+        isGridFocused = false
+        isPreviewEditing = false
+        // 延后一小会儿再放开建议浮层，给 SwiftUI 一次 tick 把状态提交到渲染树，
+        // 避免刚 orderFrontRegardless 时显示上一次的 `/` 建议面板。
+        // 代价：打开 80ms 内如果立即输入 `/`，这一帧的建议不会渲染，
+        // 下次 searchText 变动即会正常显示，实际几乎感知不到。
+        store.isActive = true
+        // 建议浮层启用与消费未处理的脏标记均需在 UI 重置提交后执行
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            suggestionsArmed = true
+            store.refreshIfNeeded()
         }
-        .onChange(of: selectedFilter) {
-            // 始终记录最近一次主筛选；恢复与否由 rememberLastFilter 在显示时决定。
-            lastFilterStorage = selectedFilter.storageString
-            // 切分类回到标签级焦点：←→ 继续切分类，↓ 才进入网格
-            isGridFocused = false
-            applyFiltersToStore()
-            // 切分类 = 导航动作，一律选中新列表第一条（与打开面板时「列表顶部 = 预览」
-            // 一致）。不能交给 onChange(of: store.items) 的兜底——它只在旧选中项从新列表
-            // 消失时才重选，于是「全部 → 文本 → 全部」会把途中自动选中的文本条目带回
-            // 「全部」，看起来选中随机跳到了第三行。store.applyFilters() 是同步的
-            // （show 流程同一序列），这里 rebuild 后缓存即为新列表。
-            rebuildGroupedItems()
+        let latestItemID = store.queryFirstItemID()
+        if latestItemID != lastSeenFirstItemID {
+            store.resetFilters()
+        } else {
+            store.smartGroupFilter = nil
+            store.updateQuery(searchText: .set(""), sourceApp: .set(nil), groupName: .set(nil))
+        }
+        lastSeenFirstItemID = latestItemID
+
+        // 恢复上次的主筛选：同步写回 store，保证首帧即为正确列表（不闪“全部”）。
+        // 此刻 pill 恒为 nil。`restoredFilterOnShow()` 已用缓存计数校验过维度/存在性；
+        // 这里再用真实 totalCount 兜底关闭期间被删/清空的组或类型。
+        if restoredFilter != .all {
+            applyFilters(primary: restoredFilter, pill: nil)
+            if store.totalCount == 0 {
+                selectedFilter = .all
+                applyFilters(primary: .all, pill: nil)
+            }
+        }
+
+        rebuildGroupedItems()
+        scrollResetToken = UUID()
+        selectDefaultHistoryItem()
+        targetApp = QuickPanelWindowController.shared.previousApp
+        isSearchFocused = true
+    }
+
+    private func handleSearchTextChange() {
+        if pill != nil {
+            // 激活了药丸筛选：搜索文本仅作为该药丸作用域内的关键字
+            store.searchText = searchText
+        } else if isSlashSubmenuMode {
+            // 当前处于 "/" 子菜单选择模式，暂停内容搜索
+            store.searchText = ""
+        } else {
+            store.searchText = searchText
+        }
+        // 输入 "/" 时默认选中首个建议行
+        groupSuggestionIndex = totalSuggestionCount > 0 ? 0 : -1
+    }
+
+    private func handleSelectedFilterChange() {
+        isPreviewEditing = false
+        // 始终记录最近一次主筛选；恢复与否由 rememberLastFilter 在显示时决定。
+        lastFilterStorage = selectedFilter.storageString
+        // 切分类回到标签级焦点：←→ 继续切分类，↓ 才进入网格
+        isGridFocused = false
+        applyFiltersToStore()
+        // 切分类 = 导航动作，一律选中新列表第一条（与打开面板时「列表顶部 = 预览」
+        // 一致）。不能交给 onChange(of: store.items) 的兜底——它只在旧选中项从新列表
+        // 消失时才重选，于是「全部 → 文本 → 全部」会把途中自动选中的文本条目带回
+        // 「全部」，看起来选中随机跳到了第三行。store.applyFilters() 是同步的
+        // （show 流程同一序列），这里 rebuild 后缓存即为新列表。
+        rebuildGroupedItems()
+        selectDefaultHistoryItem()
+    }
+
+    private func handlePillChange() {
+        applyFiltersToStore()
+        // 药丸筛选切换也是导航动作，选中新列表第一条
+        rebuildGroupedItems()
+        selectDefaultHistoryItem()
+    }
+
+    private func handleStoreItemsChange() {
+        rebuildGroupedItems()
+        // 面板可见但用户还没任何操作：这次数据刷新多半是打开一瞬间赶到的新剪贴
+        // （轮询延迟跨过了 show），选中跟随新的第一条，保持「列表顶部 = 预览」。
+        if HotkeyManager.shared.isQuickPanelVisible, !userInteractedSinceShow {
             selectDefaultHistoryItem()
+            return
         }
-        .onChange(of: pill) {
-            applyFiltersToStore()
-            // 同上：pill 筛选切换也是导航动作，选中新列表第一条。
-            rebuildGroupedItems()
-            selectDefaultHistoryItem()
+        guard selectedItemIDs.isEmpty || selectedItemIDs.isDisjoint(with: cachedIDSet) else { return }
+        let firstID = defaultItem?.persistentModelID
+        if let firstID {
+            selectedItemIDs = [firstID]
+            selectionAnchor = firstID
+        } else {
+            selectedItemIDs.removeAll()
+            selectionAnchor = nil
         }
-        .onChange(of: quickPanelSecondaryRowRaw) {
-            // 切换 tabBar 维度时，相关过滤会失配，统一重置成干净状态
-            selectedFilter = .all
-            pill = nil
+        lastNavigatedID = firstID
+    }
+
+    private func handlePreviewLayoutChange() {
+        if !layoutState.shouldShowPreview {
+            isPreviewEditing = false
         }
-        .onChange(of: store.items) {
-            rebuildGroupedItems()
-            // 面板可见但用户还没任何操作：这次数据刷新多半是打开一瞬间赶到的新剪贴
-            // （轮询延迟跨过了 show），选中跟随新的第一条，保持「列表顶部 = 预览」。
-            if HotkeyManager.shared.isQuickPanelVisible, !userInteractedSinceShow {
-                selectDefaultHistoryItem()
-                return
-            }
-            guard selectedItemIDs.isEmpty || selectedItemIDs.isDisjoint(with: cachedIDSet) else { return }
-            let firstID = defaultItem?.persistentModelID
-            if let firstID {
-                selectedItemIDs = [firstID]
-                selectionAnchor = firstID
-            } else {
-                selectedItemIDs.removeAll()
-                selectionAnchor = nil
-            }
-            lastNavigatedID = firstID
+    }
+
+    private func handleRelaySplitChange() {
+        guard let text = relaySplitText else { return }
+        SplitWindowController.shared.show(text: text) { delimiter in
+            guard let parts = RelaySplitter.split(text, by: delimiter) else { return }
+            RelayManager.shared.addToQueue(texts: parts)
         }
-        .onChange(of: relaySplitText) {
-            guard let text = relaySplitText else { return }
-            SplitWindowController.shared.show(text: text) { delimiter in
-                guard let parts = RelaySplitter.split(text, by: delimiter) else { return }
-                RelayManager.shared.addToQueue(texts: parts)
-            }
-            relaySplitText = nil
-        }
-        .localized()
+        relaySplitText = nil
     }
 
     // MARK: - Search
@@ -537,7 +592,7 @@ struct QuickPanelView: View {
     /// user's sidebar drag order. Users narrow further by typing more.
     private static let SUGGESTION_SECTION_LIMIT = 8
 
-    private var currentSuggestionGroups: [(name: String, icon: String, count: Int, preservesItems: Bool)] {
+    private var currentSuggestionGroups: [ClipItemStore.SidebarGroup] {
         guard shouldSuggestGroups else { return [] }
         guard searchText.hasPrefix(Self.GROUP_SEARCH_PREFIX) else { return [] }
         let query = String(searchText.dropFirst()).trimmingCharacters(in: .whitespaces).lowercased()
@@ -598,6 +653,7 @@ struct QuickPanelView: View {
                             ForEach(Array(groups.enumerated()), id: \.element.name) { idx, group in
                                 suggestionRow(
                                     icon: group.icon, name: group.name, count: group.count,
+                                    colorHex: group.color,
                                     isSelected: idx == groupSuggestionIndex
                                 ) {
                                     selectSuggestion(.group(name: group.name, icon: group.icon, count: group.count))
@@ -612,6 +668,7 @@ struct QuickPanelView: View {
                             ForEach(Array(types.enumerated()), id: \.element) { idx, type in
                                 suggestionRow(
                                     icon: type.icon, name: type.label, count: store.sidebarCounts.byType[type] ?? 0,
+                                    colorHex: typeColors.hex(for: type),
                                     isSelected: (offset + idx) == groupSuggestionIndex
                                 ) {
                                     selectSuggestion(.type(type))
@@ -662,8 +719,17 @@ struct QuickPanelView: View {
             .padding(.bottom, 2)
     }
 
-    private func suggestionRow(icon: String, appName: String? = nil, name: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func suggestionRow(
+        icon: String,
+        appName: String? = nil,
+        name: String,
+        count: Int,
+        colorHex: String? = nil,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let tint = Color.pasteMemo(hex: colorHex) ?? Color.accentColor
+        return Button(action: action) {
             HStack(spacing: 8) {
                 if let appName, let nsIcon = appIcon(forBundleID: nil, name: appName) {
                     Image(nsImage: nsIcon)
@@ -672,7 +738,7 @@ struct QuickPanelView: View {
                 } else {
                     Image(systemName: icon)
                         .font(.system(size: 13))
-                        .foregroundStyle(isSelected ? .white : .secondary)
+                        .foregroundStyle(isSelected ? Color.white : tint)
                         .frame(width: 18)
                 }
                 Text(name)
@@ -691,7 +757,7 @@ struct QuickPanelView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(isSelected ? tint : Color.clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -713,32 +779,47 @@ struct QuickPanelView: View {
 
     @ViewBuilder
     private func pillView(for pill: PillSelection) -> some View {
-        HStack(spacing: 4) {
+        let tint = pillTint(for: pill)
+        HStack(spacing: 5) {
             switch pill {
             case .type(let t):
-                Image(systemName: t.icon).font(.system(size: 10))
-                Text(t.label).font(.system(size: 12))
+                Image(systemName: t.icon).font(.system(size: 10, weight: .semibold))
+                Text(t.label).font(.system(size: 12, weight: .medium))
             case .group(let name):
                 let icon = store.sidebarCounts.byGroup.first { $0.name == name }?.icon ?? "folder"
-                Image(systemName: icon).font(.system(size: 10))
-                Text(name).font(.system(size: 12))
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+                Text(name).font(.system(size: 12, weight: .medium))
             case .app(let name):
                 if let nsIcon = appIcon(forBundleID: nil, name: name) {
                     Image(nsImage: nsIcon).resizable().frame(width: 12, height: 12)
                 } else {
-                    Image(systemName: "app.dashed").font(.system(size: 10))
+                    Image(systemName: "app.dashed").font(.system(size: 10, weight: .semibold))
                 }
-                Text(name).font(.system(size: 12))
+                Text(name).font(.system(size: 12, weight: .medium))
             }
             Button { self.pill = nil } label: {
                 Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Color.accentColor, in: Capsule())
+        .background(tint, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.22), lineWidth: 0.5))
         .foregroundStyle(.white)
+        .shadow(color: tint.opacity(0.28), radius: 3, y: 1)
+    }
+
+    private func pillTint(for pill: PillSelection) -> Color {
+        switch pill {
+        case .type(let type):
+            return typeColors.color(for: type)
+        case .group(let name):
+            let hex = store.sidebarCounts.byGroup.first { $0.name == name }?.color
+            return Color.pasteMemo(hex: hex) ?? .accentColor
+        case .app:
+            return .accentColor
+        }
     }
 
     /// 将 selectedFilter + pill 合并写回到 store，两个维度正交共存
@@ -752,6 +833,7 @@ struct QuickPanelView: View {
         store.aiAgentOnly = false
         store.filterType = nil
         store.groupName = nil
+        store.smartGroupFilter = nil
         store.sourceApp = nil
 
         switch primary {
@@ -759,13 +841,13 @@ struct QuickPanelView: View {
         case .pinned: store.pinnedOnly = true
         case .aiAgent: store.aiAgentOnly = true
         case .type(let t): store.filterType = t
-        case .group(let name): store.groupName = name
+        case .group(let name): applyGroupFilter(name)
         }
 
         switch pill {
         case nil: break
         case .type(let t): store.filterType = t
-        case .group(let name): store.groupName = name
+        case .group(let name): applyGroupFilter(name)
         case .app(let name): store.sourceApp = .named(name)
         }
 
@@ -794,8 +876,8 @@ struct QuickPanelView: View {
     private var searchBar: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 18))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(isSearchFocused ? Color.accentColor : Color.secondary.opacity(0.7))
                 .frame(width: 22, height: 22)
 
             if let pill {
@@ -805,7 +887,7 @@ struct QuickPanelView: View {
 
             TextField(L10n.tr("quick.search"), text: $searchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 16))
+                .font(.system(size: 15, weight: .regular))
                 .focused($isSearchFocused)
 
             if !searchText.isEmpty || pill != nil {
@@ -816,7 +898,7 @@ struct QuickPanelView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(.quaternary)
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -826,14 +908,20 @@ struct QuickPanelView: View {
                 QuickPanelWindowController.shared.isPinned = isPanelPinned
             } label: {
                 Image(systemName: isPanelPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 12))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(
-                        isPanelPinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.tertiary)
+                        isPanelPinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary)
                     )
                     .frame(width: 28, height: 24)
                     .background(
-                        isPanelPinned ? AnyShapeStyle(Color.accentColor.opacity(0.15)) : AnyShapeStyle(Color.clear),
-                        in: RoundedRectangle(cornerRadius: 5)
+                        isPanelPinned
+                            ? AnyShapeStyle(Color.accentColor.opacity(0.16))
+                            : AnyShapeStyle(Color.primary.opacity(0.04)),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(isPanelPinned ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06), lineWidth: 0.5)
                     )
                     .contentShape(Rectangle())
             }
@@ -841,18 +929,25 @@ struct QuickPanelView: View {
             .help((isPanelPinned ? L10n.tr("quickPanel.unpin") : L10n.tr("quickPanel.pin")) + " (⌘T)")
 
             Text("\(store.totalCount)")
-                .font(.system(size: 12, weight: .medium).monospacedDigit())
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(.secondary)
                 .frame(minWidth: 28, minHeight: 24)
-                .padding(.horizontal, 6)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 5))
+                .padding(.horizontal, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(0.05))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                        )
+                )
         }
         // 固定一个比最高 pill 略大的行高，pill 出现/消失时 HStack 不会撑高，
         // 搜索图标、下方 tabBar 都不会上下跳动
-        .frame(height: 28)
+        .frame(height: 30)
         .padding(.horizontal, 20)
-        .padding(.top, 22)
-        .padding(.bottom, 14)
+        .padding(.top, 20)
+        .padding(.bottom, 12)
         // 避免 pill 出现/消失时输入框位置被 SwiftUI 默认动画插值造成的"抖动"
         .animation(nil, value: selectedFilter)
         .animation(nil, value: pill)
@@ -879,7 +974,12 @@ struct QuickPanelView: View {
                     .id(QuickFilter.all)
                     if secondaryRow == .types {
                         ForEach(availableContentTypes, id: \.self) { type in
-                            badge(type.label, isActive: selectedFilter == .type(type)) {
+                            badge(
+                                type.label,
+                                icon: type.icon,
+                                colorHex: typeColors.hex(for: type),
+                                isActive: selectedFilter == .type(type)
+                            ) {
                                 selectedFilter = selectedFilter == .type(type) ? .all : .type(type)
                                 isSearchFocused = true
                             }
@@ -887,7 +987,12 @@ struct QuickPanelView: View {
                         }
                     } else {
                         ForEach(availableGroupsForTab, id: \.name) { group in
-                            badge(group.name, isActive: selectedFilter == .group(group.name)) {
+                            badge(
+                                group.name,
+                                icon: group.icon,
+                                colorHex: group.color,
+                                isActive: selectedFilter == .group(group.name)
+                            ) {
                                 selectedFilter = selectedFilter == .group(group.name) ? .all : .group(group.name)
                                 isSearchFocused = true
                             }
@@ -917,20 +1022,54 @@ struct QuickPanelView: View {
         }
     }
 
-    private var availableGroupsForTab: [(name: String, icon: String, count: Int, preservesItems: Bool)] {
+    private var availableGroupsForTab: [ClipItemStore.SidebarGroup] {
         store.sidebarCounts.byGroup.filter { $0.count > 0 }
     }
 
-    private func badge(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 11, weight: isActive ? .medium : .regular))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .foregroundStyle(isActive ? .white : Color(nsColor: .secondaryLabelColor))
+    private func applyGroupFilter(_ name: String) {
+        if let group = store.sidebarCounts.byGroup.first(where: { $0.name == name }),
+           let smartFilter = group.smartFilter {
+            store.smartGroupFilter = smartFilter
+            store.groupName = nil
+        } else {
+            store.groupName = name
+            store.smartGroupFilter = nil
+        }
+    }
+
+    private func badge(
+        _ label: String,
+        icon: String? = nil,
+        colorHex: String? = nil,
+        isActive: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        let tint = Color.pasteMemo(hex: colorHex) ?? Color.accentColor
+        return Button(action: action) {
+            HStack(spacing: 5) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .foregroundStyle(isActive ? Color.white : tint)
+                }
+                Text(label)
+                    .font(.system(size: 11.5, weight: isActive ? .semibold : .regular))
+            }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 4.5)
+                .foregroundStyle(isActive ? Color.white : Color(nsColor: .secondaryLabelColor))
                 .background(
-                    isActive ? Color.accentColor : Color.primary.opacity(0.06),
+                    isActive
+                        ? AnyShapeStyle(tint)
+                        : AnyShapeStyle(PasteMemoVisualStyle.subtleFill),
                     in: Capsule()
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            isActive ? Color.white.opacity(0.24) : PasteMemoVisualStyle.subtleStroke,
+                            lineWidth: 0.5
+                        )
                 )
         }
         .buttonStyle(.plain)
@@ -1051,14 +1190,19 @@ struct QuickPanelView: View {
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 28, weight: .light))
-                .foregroundStyle(.quaternary)
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.035))
+                    .frame(width: 64, height: 64)
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(.tertiary)
+            }
             Text(L10n.tr("empty.noResults"))
-                .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1071,7 +1215,11 @@ struct QuickPanelView: View {
         if isMultiSelected {
             multiSelectPreview
         } else if let item = currentItem {
-            QuickPreviewPane(item: item, searchText: searchText)
+            QuickPreviewPane(
+                item: item,
+                searchText: searchText,
+                isEditing: $isPreviewEditing
+            )
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "square.text.square")
@@ -1160,6 +1308,7 @@ struct QuickPanelView: View {
                             footerKey("⇧↵", L10n.tr("quick.pasteNewLine"))
                         }
                         if !compact {
+                            footerKey("⌥↵", L10n.tr("cmd.pasteAsFile"))
                             footerKey("⌘↵", quickPanelAutoPaste ? L10n.tr("action.pasteAsPlainText") : L10n.tr("cmd.copyAsPlainText"))
                         }
                     } else {
@@ -1169,6 +1318,9 @@ struct QuickPanelView: View {
                                 if !(cur.imageData != nil && canPasteToFinderFolder), !canSaveTextToFolder {
                                     footerKey("⇧↵", L10n.tr("quick.pasteNewLine"))
                                 }
+                            }
+                            if !compact {
+                                footerKey("⌥↵", L10n.tr("cmd.pasteAsFile"))
                             }
                             if !compact, let cmdEnterLabel = cmdEnterFooterLabel(for: cur) {
                                 footerKey("⌘↵", cmdEnterLabel)
@@ -1267,16 +1419,24 @@ struct QuickPanelView: View {
     }
 
     private func footerKey(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 4.5) {
             Text(key)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4))
+                .padding(.horizontal, 5.5)
+                .padding(.vertical, 2.5)
+                .background(
+                    RoundedRectangle(cornerRadius: 4.5)
+                        .fill(Color.primary.opacity(0.06))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4.5)
+                                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.03), radius: 1, y: 0.5)
+                )
             Text(label)
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary.opacity(0.85))
                 .lineLimit(1)
         }
         .fixedSize(horizontal: true, vertical: false)
@@ -1291,6 +1451,11 @@ struct QuickPanelView: View {
             // 复制置顶，与主窗口右键菜单一致
             Button(L10n.tr("action.mergeCopy")) {
                 copyItemsToClipboard(items)
+            }
+            if items.allSatisfy({ $0.contentType.isMergeable }) {
+                Button(L10n.tr("composer.title")) {
+                    composeAndPaste(items)
+                }
             }
             let hasPinned = items.contains(where: \.isPinned)
             Button(hasPinned ? L10n.tr("action.unpin") : L10n.tr("action.pin")) {
@@ -1324,6 +1489,12 @@ struct QuickPanelView: View {
             Button(L10n.tr("action.mergeCopy")) {
                 copyItemsToClipboard([item])
                 selectItem(itemID)
+            }
+            if layoutState.shouldShowPreview,
+               item.contentType == .text || item.contentType == .code {
+                Button(L10n.tr("action.edit")) {
+                    beginPreviewEditing(item)
+                }
             }
             Button(item.isPinned ? L10n.tr("action.unpin") : L10n.tr("action.pin")) {
                 item.isPinned.toggle()
@@ -1378,6 +1549,22 @@ struct QuickPanelView: View {
     }
 
     // MARK: - Actions
+
+    private func beginPreviewEditing(_ item: ClipItem) {
+        let itemID = item.persistentModelID
+        let selectionChanged = selectedItemIDs != Set([itemID])
+        selectItem(itemID)
+        if selectionChanged {
+            // `onChange(of: selectedItemIDs)` cancels any editor owned by the old row.
+            // Enter the new row's editor on the next state-update cycle.
+            DispatchQueue.main.async {
+                guard currentItem?.persistentModelID == itemID else { return }
+                isPreviewEditing = true
+            }
+        } else {
+            isPreviewEditing = true
+        }
+    }
 
     private func moveSelection(_ delta: Int, extendSelection: Bool = false) {
         var items = displayOrderItems
@@ -1446,6 +1633,7 @@ struct QuickPanelView: View {
             let hasShift = event.modifierFlags.contains(.shift)
             let hasCmd = event.modifierFlags.contains(.command)
             let hasControl = event.modifierFlags.contains(.control)
+            let hasOption = event.modifierFlags.contains(.option)
 
             if showCommandPalette {
                 // NSPopover 内的键盘监听偶发收不到字母键，这里只对高频字母快捷键做一层兜底，
@@ -1475,6 +1663,13 @@ struct QuickPanelView: View {
                 default:
                     return event
                 }
+            }
+
+            // While the inline editor owns focus, panel navigation and action shortcuts
+            // must stay out of the way. NSTextView handles typing, selection, undo/redo,
+            // Return, and Escape (which calls QuickPreviewPane.cancelEdit).
+            if isPreviewEditing {
+                return event
             }
 
             // Group suggestion keyboard navigation
@@ -1652,6 +1847,10 @@ struct QuickPanelView: View {
                 if let textView = event.window?.firstResponder as? NSTextView,
                    textView.hasMarkedText() {
                     return event
+                }
+                if hasOption, !hasCmd, !hasControl, !hasShift {
+                    handlePasteAsFiles()
+                    return nil
                 }
                 // ⌘⇧↩ is the one-shot "paste and destroy" shortcut, gated to
                 // single-selection items that aren't pinned / favourited / in a
@@ -1835,12 +2034,13 @@ struct QuickPanelView: View {
             }
         case .transform(let ruleAction):
             if let item = currentItem {
+                // 使用规则执行引擎转换内容并更新显示标题与快照
                 let processed = AutomationEngine.shared.applyAction(ruleAction, to: item.content)
+                let contentChanged = processed != item.content
                 item.content = processed
                 item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-                if ruleAction == .stripRichText {
-                    item.richTextData = nil
-                    item.richTextType = nil
+                if contentChanged || ruleAction == .stripRichText {
+                    item.resetStaleSnapshots()
                 }
                 ClipItemStore.saveAndNotify(modelContext)
             }
@@ -1907,7 +2107,7 @@ struct QuickPanelView: View {
         let groupNames = Set(items.compactMap(\.groupName))
         let currentGroup = groupNames.count == 1 ? groupNames.first : nil
         Menu(L10n.tr("action.assignGroup")) {
-            ForEach(store.sidebarCounts.byGroup, id: \.name) { group in
+            ForEach(store.sidebarCounts.byGroup.filter { !$0.isSmart }, id: \.name) { group in
                 if group.name == currentGroup {
                     Button {} label: {
                         Label(group.name, systemImage: "checkmark")
@@ -1919,7 +2119,7 @@ struct QuickPanelView: View {
                     }
                 }
             }
-            if !store.sidebarCounts.byGroup.isEmpty {
+            if store.sidebarCounts.byGroup.contains(where: { !$0.isSmart }) {
                 Divider()
             }
             Button(L10n.tr("action.newGroup")) {
@@ -1966,6 +2166,22 @@ struct QuickPanelView: View {
             } else {
                 clipboardManager.pasteMultiple(items, forceNewLine: forceNewLine, targetApp: previousApp ?? app)
             }
+        }
+    }
+
+    private func composeAndPaste(_ items: [ClipItem]) {
+        guard let result = ClipComposerPanel.show(items: items, canPaste: true) else { return }
+        if case .createClip = result.action {
+            let newItem = ClipItem(content: result.content, contentType: .text)
+            modelContext.insert(newItem)
+            if result.removeOriginals { ClipItemStore.deleteAndNotifyPermanently(items, from: modelContext) }
+            else { ClipItemStore.saveAndNotify(modelContext) }
+            selectedItemIDs = [newItem.persistentModelID]
+            return
+        }
+        bumpLastUsedPreservingOrder(items)
+        dismissAndRestoreApp { app in
+            clipboardManager.pasteAsPlainText(result.content, targetApp: app)
         }
     }
 
@@ -2116,6 +2332,36 @@ struct QuickPanelView: View {
         ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
     }
 
+    private func handlePasteAsFiles() {
+        let items = isMultiSelected ? currentItems : (currentItem.map { [$0] } ?? [])
+        guard !items.isEmpty else { return }
+
+        let fileURLs = clipboardManager.fileURLsForPaste(items)
+        guard !fileURLs.isEmpty else { return }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        clipboardManager.writeFileURLsToPasteboard(pasteboard, paths: fileURLs.map(\.path))
+        pasteboard.markAsPasteMemoWrite()
+        clipboardManager.lastChangeCount = pasteboard.changeCount
+
+        if items.count == 1 {
+            markItemUsed(items[0])
+        } else if !QuickPanelWindowController.shared.isPinned {
+            bumpLastUsedPreservingOrder(items)
+        }
+        SoundManager.playPaste()
+
+        let appToRestore = QuickPanelWindowController.shared.previousApp
+        QuickPanelWindowController.shared.dismiss()
+        if let app = appToRestore {
+            app.activate()
+            clipboardManager.simulatePaste(targetApp: app)
+        } else {
+            ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("action.copied"), icon: .success))
+        }
+    }
+
     private func handleDeleteSelected() {
         let itemsToDelete = isMultiSelected ? currentItems : (currentItem.map { [$0] } ?? [])
         deleteItems(itemsToDelete)
@@ -2172,9 +2418,20 @@ struct QuickPanelView: View {
         if let existing = try? modelContext.fetch(descriptor).first {
             existing.icon = result.icon
             existing.preservesItems = result.preservesItems
+            existing.color = result.color
+            existing.layoutRaw = result.layoutRaw
+            existing.isQuickAccess = result.isQuickAccess
         } else {
             let maxOrder = (try? modelContext.fetch(FetchDescriptor<SmartGroup>()))?.map(\.sortOrder).max() ?? -1
-            let group = SmartGroup(name: result.name, icon: result.icon, sortOrder: maxOrder + 1, preservesItems: result.preservesItems)
+            let group = SmartGroup(
+                name: result.name,
+                icon: result.icon,
+                sortOrder: maxOrder + 1,
+                color: result.color,
+                preservesItems: result.preservesItems,
+                layoutRaw: result.layoutRaw,
+                isQuickAccess: result.isQuickAccess
+            )
             modelContext.insert(group)
         }
         try? modelContext.save()
@@ -2186,10 +2443,9 @@ struct QuickPanelView: View {
         let contentChanged = processed != item.content
         item.content = processed
         item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-        // Clear rich text whenever content changed (or user explicitly asked).
+        // 内容变更或显式清除富文本时，重置旧快照与富文本
         if contentChanged || action == .stripRichText {
-            item.richTextData = nil
-            item.richTextType = nil
+            item.resetStaleSnapshots()
         }
         ClipItemStore.saveAndNotify(modelContext)
     }
@@ -2224,11 +2480,9 @@ struct QuickPanelView: View {
         guard contentChanged || AutomationEngine.containsSpecialAction(actions) else { return }
         item.content = processed
         item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-        // Clear rich text if content changed — otherwise stale rich formatting
-        // shows through in the preview pane even though content has been updated.
+        // 内容发生变更时清除旧快照与富文本，防止旧格式或快照回放干扰粘贴
         if contentChanged || actions.contains(.stripRichText) {
-            item.richTextData = nil
-            item.richTextType = nil
+            item.resetStaleSnapshots()
         }
         // markSensitive / pin / move-to-group — shared with the capture & main-window paths.
         ClipboardManager.shared.applyMetadataActions(actions, to: item, context: modelContext)
@@ -2743,11 +2997,51 @@ struct KeyCap: View {
     }
 }
 
-/// Reports the natural height of the `/` suggestion list so its scroll container
-/// can fit content while capping at `suggestionsMaxHeight`.
+/// 报告 `/` 建议列表的自然高度，使滚动容器能够贴合内容并限制在最大高度内
 private struct SuggestionsHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+// MARK: - View Modifiers Helpers
+
+private extension View {
+    /// 绑定快捷面板生命周期事件
+    func applyQuickPanelLifecycle(
+        onAppear: @escaping () -> Void,
+        onDisappear: @escaping () -> Void
+    ) -> some View {
+        self
+            .onAppear(perform: onAppear)
+            .onDisappear(perform: onDisappear)
+    }
+
+    /// 绑定快捷面板相关系统与全局通知
+    func applyQuickPanelNotifications(
+        onDismiss: @escaping () -> Void,
+        onPinnedResignKey: @escaping () -> Void,
+        onPasteDigit: @escaping (Int) -> Void,
+        onPasteTargetChanged: @escaping () -> Void,
+        onDidShow: @escaping () -> Void
+    ) -> some View {
+        self
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelWillDismiss)) { _ in
+                onDismiss()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
+                onPinnedResignKey()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteDigit)) { note in
+                guard let index = note.userInfo?["index"] as? Int else { return }
+                onPasteDigit(index)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteTargetChanged)) { _ in
+                onPasteTargetChanged()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelDidShow)) { _ in
+                onDidShow()
+            }
     }
 }
