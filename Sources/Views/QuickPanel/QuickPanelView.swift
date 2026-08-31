@@ -281,31 +281,43 @@ struct QuickPanelView: View {
     // MARK: - Body
 
     var body: some View {
+        contentWithChanges
+            .applyQuickPanelNotifications(
+                onDismiss: handleQuickPanelWillDismiss,
+                onPinnedResignKey: { isSearchFocused = false },
+                onPasteDigit: { pasteDigitWhilePinned(index: $0) },
+                onPasteTargetChanged: { targetApp = QuickPanelWindowController.shared.previousApp },
+                onDidShow: handleQuickPanelDidShow
+            )
+            .applyQuickPanelLifecycle(
+                onAppear: handleAppear,
+                onDisappear: handleDisappear
+            )
+            .localized()
+    }
+
+    @ViewBuilder
+    private var contentWithChanges: some View {
+        contentWithSearchAndFilters
+            .onChange(of: store.items) {
+                handleStoreItemsChange()
+            }
+            .onChange(of: selectedItemIDs) {
+                isPreviewEditing = false
+            }
+            .onChange(of: layoutState.shouldShowPreview) {
+                handlePreviewLayoutChange()
+            }
+            .onChange(of: relaySplitText) {
+                handleRelaySplitChange()
+            }
+    }
+
+    @ViewBuilder
+    private var contentWithSearchAndFilters: some View {
         ZStack(alignment: .top) {
             panelContent
             suggestionsOverlay
-        }
-        .onAppear {
-            handleAppear()
-        }
-        .onDisappear {
-            handleDisappear()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelWillDismiss)) { _ in
-            handleQuickPanelWillDismiss()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
-            isSearchFocused = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteDigit)) { note in
-            guard let index = note.userInfo?["index"] as? Int else { return }
-            pasteDigitWhilePinned(index: index)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteTargetChanged)) { _ in
-            targetApp = QuickPanelWindowController.shared.previousApp
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelDidShow)) { _ in
-            handleQuickPanelDidShow()
         }
         .onChange(of: searchText) {
             handleSearchTextChange()
@@ -320,19 +332,6 @@ struct QuickPanelView: View {
             selectedFilter = .all
             pill = nil
         }
-        .onChange(of: store.items) {
-            handleStoreItemsChange()
-        }
-        .onChange(of: selectedItemIDs) {
-            isPreviewEditing = false
-        }
-        .onChange(of: layoutState.shouldShowPreview) {
-            if !layoutState.shouldShowPreview { isPreviewEditing = false }
-        }
-        .onChange(of: relaySplitText) {
-            handleRelaySplitChange()
-        }
-        .localized()
     }
 
     @ViewBuilder
@@ -530,6 +529,12 @@ struct QuickPanelView: View {
             selectionAnchor = nil
         }
         lastNavigatedID = firstID
+    }
+
+    private func handlePreviewLayoutChange() {
+        if !layoutState.shouldShowPreview {
+            isPreviewEditing = false
+        }
     }
 
     private func handleRelaySplitChange() {
@@ -2992,11 +2997,51 @@ struct KeyCap: View {
     }
 }
 
-/// Reports the natural height of the `/` suggestion list so its scroll container
-/// can fit content while capping at `suggestionsMaxHeight`.
+/// 报告 `/` 建议列表的自然高度，使滚动容器能够贴合内容并限制在最大高度内
 private struct SuggestionsHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = max(value, nextValue())
+    }
+}
+
+// MARK: - View Modifiers Helpers
+
+private extension View {
+    /// 绑定快捷面板生命周期事件
+    func applyQuickPanelLifecycle(
+        onAppear: @escaping () -> Void,
+        onDisappear: @escaping () -> Void
+    ) -> some View {
+        self
+            .onAppear(perform: onAppear)
+            .onDisappear(perform: onDisappear)
+    }
+
+    /// 绑定快捷面板相关系统与全局通知
+    func applyQuickPanelNotifications(
+        onDismiss: @escaping () -> Void,
+        onPinnedResignKey: @escaping () -> Void,
+        onPasteDigit: @escaping (Int) -> Void,
+        onPasteTargetChanged: @escaping () -> Void,
+        onDidShow: @escaping () -> Void
+    ) -> some View {
+        self
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelWillDismiss)) { _ in
+                onDismiss()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
+                onPinnedResignKey()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteDigit)) { note in
+                guard let index = note.userInfo?["index"] as? Int else { return }
+                onPasteDigit(index)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteTargetChanged)) { _ in
+                onPasteTargetChanged()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .quickPanelDidShow)) { _ in
+                onDidShow()
+            }
     }
 }
