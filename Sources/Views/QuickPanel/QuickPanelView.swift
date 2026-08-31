@@ -99,6 +99,7 @@ struct QuickPanelView: View {
     /// true = 焦点在图片（←→↑↓ 四向移动，顶行按 ↑ 退回标签级）。
     /// 没有这层状态时，→ 移到「图片」分类的瞬间方向键就被网格吞掉，分类切换"卡死"。
     @State private var isGridFocused = false
+    @State private var isPreviewEditing = false
     @State private var cachedGroupedItems: [GroupedItem<ClipItem>] = []
     @State private var cachedHistoryRows: [ClipHistoryListBuilder.Row] = []
     @State private var cachedHistoryRowIndexByID: [PersistentIdentifier: Int] = [:]
@@ -356,6 +357,7 @@ struct QuickPanelView: View {
             showCommandPalette = false
             suggestionsArmed = false
             userTypedSlash = false
+            isPreviewEditing = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
             // Pinned + user clicked another app: release search focus so the text field
@@ -382,6 +384,7 @@ struct QuickPanelView: View {
             userTypedSlash = false
             userInteractedSinceShow = false
             isGridFocused = false
+            isPreviewEditing = false
             // 延后一小会儿再放开建议浮层，给 SwiftUI 一次 tick 把状态提交到渲染树，
             // 避免刚 orderFrontRegardless 时显示上一次的 `/` 建议面板。
             // 代价：打开 80ms 内如果立即输入 `/`，这一帧的建议不会渲染，
@@ -439,6 +442,7 @@ struct QuickPanelView: View {
             groupSuggestionIndex = totalSuggestionCount > 0 ? 0 : -1
         }
         .onChange(of: selectedFilter) {
+            isPreviewEditing = false
             // 始终记录最近一次主筛选；恢复与否由 rememberLastFilter 在显示时决定。
             lastFilterStorage = selectedFilter.storageString
             // 切分类回到标签级焦点：←→ 继续切分类，↓ 才进入网格
@@ -481,6 +485,12 @@ struct QuickPanelView: View {
                 selectionAnchor = nil
             }
             lastNavigatedID = firstID
+        }
+        .onChange(of: selectedItemIDs) {
+            isPreviewEditing = false
+        }
+        .onChange(of: layoutState.shouldShowPreview) {
+            if !layoutState.shouldShowPreview { isPreviewEditing = false }
         }
         .onChange(of: relaySplitText) {
             guard let text = relaySplitText else { return }
@@ -1162,7 +1172,11 @@ struct QuickPanelView: View {
         if isMultiSelected {
             multiSelectPreview
         } else if let item = currentItem {
-            QuickPreviewPane(item: item, searchText: searchText)
+            QuickPreviewPane(
+                item: item,
+                searchText: searchText,
+                isEditing: $isPreviewEditing
+            )
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "square.text.square")
@@ -1433,6 +1447,12 @@ struct QuickPanelView: View {
                 copyItemsToClipboard([item])
                 selectItem(itemID)
             }
+            if layoutState.shouldShowPreview,
+               item.contentType == .text || item.contentType == .code {
+                Button(L10n.tr("action.edit")) {
+                    beginPreviewEditing(item)
+                }
+            }
             Button(item.isPinned ? L10n.tr("action.unpin") : L10n.tr("action.pin")) {
                 item.isPinned.toggle()
                 ClipItemStore.saveAndNotify(modelContext)
@@ -1486,6 +1506,22 @@ struct QuickPanelView: View {
     }
 
     // MARK: - Actions
+
+    private func beginPreviewEditing(_ item: ClipItem) {
+        let itemID = item.persistentModelID
+        let selectionChanged = selectedItemIDs != Set([itemID])
+        selectItem(itemID)
+        if selectionChanged {
+            // `onChange(of: selectedItemIDs)` cancels any editor owned by the old row.
+            // Enter the new row's editor on the next state-update cycle.
+            DispatchQueue.main.async {
+                guard currentItem?.persistentModelID == itemID else { return }
+                isPreviewEditing = true
+            }
+        } else {
+            isPreviewEditing = true
+        }
+    }
 
     private func moveSelection(_ delta: Int, extendSelection: Bool = false) {
         var items = displayOrderItems
@@ -1584,6 +1620,13 @@ struct QuickPanelView: View {
                 default:
                     return event
                 }
+            }
+
+            // While the inline editor owns focus, panel navigation and action shortcuts
+            // must stay out of the way. NSTextView handles typing, selection, undo/redo,
+            // Return, and Escape (which calls QuickPreviewPane.cancelEdit).
+            if isPreviewEditing {
+                return event
             }
 
             // Group suggestion keyboard navigation

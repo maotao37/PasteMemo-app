@@ -5,6 +5,8 @@ import AppKit
 struct QuickPreviewPane: View {
     let item: ClipItem
     var searchText: String = ""
+    @Binding var isEditing: Bool
+    @Environment(\.modelContext) private var modelContext
     @AppStorage(OCRTaskCoordinator.enableOCRKey) private var ocrEnabled = true
     @AppStorage("richTextPreviewEnabled") private var richTextPreviewEnabled = true
     @State private var allowHeavyPreview = false
@@ -12,6 +14,11 @@ struct QuickPreviewPane: View {
     @State private var cachedCodeSummary: CodePreviewSummary?
     @State private var dataURIImageData: Data?
     @State private var ocrCardWidth: CGFloat = 0
+    @State private var editingContent = ""
+
+    private var isEditableType: Bool {
+        item.contentType == .text || item.contentType == .code
+    }
 
     struct CodePreviewSummary: Equatable {
         let language: CodeLanguage
@@ -97,8 +104,15 @@ struct QuickPreviewPane: View {
     var body: some View {
         if item.isDeleted || item.modelContext == nil { EmptyView() } else {
         VStack(spacing: 0) {
+            if isEditableType {
+                editToolbar
+                Divider().opacity(0.3)
+            }
+
             Group {
-                if item.isSensitive {
+                if isEditing {
+                    editableContentArea
+                } else if item.isSensitive {
                     SensitiveMask { quickContentArea }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -112,6 +126,15 @@ struct QuickPreviewPane: View {
             propertiesSection
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: item.persistentModelID) {
+            cancelEdit()
+        }
+        .onChange(of: isEditing) {
+            editingContent = isEditing ? item.content : ""
+        }
+        .onAppear {
+            if isEditing { editingContent = item.content }
+        }
         .task(id: item.persistentModelID) {
             allowHeavyPreview = false
             webPreviewReady = false
@@ -149,6 +172,108 @@ struct QuickPreviewPane: View {
             }
         }
         } // zombie-object guard: isDeleted alone is unsafe after deleteAndNotify — see QuickPanelView.swift
+    }
+
+    private var editToolbar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: item.contentType == .code ? "chevron.left.forwardslash.chevron.right" : "text.alignleft")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Text(item.contentType == .code ? L10n.tr("type.code") : L10n.tr("type.text"))
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            if isEditing {
+                Button {
+                    cancelEdit()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .help(L10n.tr("action.cancel"))
+
+                Button {
+                    saveEdit()
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .help(L10n.tr("action.save"))
+            } else {
+                Button {
+                    enterEditMode()
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .help(L10n.tr("action.edit"))
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(Color.primary.opacity(isEditing ? 0.045 : 0.02))
+    }
+
+    private var editableContentArea: some View {
+        NativeTextView(
+            text: editingContent,
+            isEditable: true,
+            autoFocus: true,
+            onTextChange: { editingContent = $0 },
+            onEscape: { cancelEdit() }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(10)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
+    }
+
+    private func enterEditMode() {
+        editingContent = item.content
+        isEditing = true
+    }
+
+    private func cancelEdit() {
+        isEditing = false
+        editingContent = ""
+    }
+
+    private func saveEdit() {
+        guard editingContent != item.content else {
+            cancelEdit()
+            return
+        }
+
+        item.content = editingContent
+        item.resetStaleSnapshots()
+        item.displayTitle = ClipItem.buildTitle(
+            content: item.content,
+            contentType: item.contentType,
+            imageData: item.imageData,
+            filePaths: item.filePaths
+        )
+        item.isSensitive = SensitiveDetector.isSensitive(
+            content: item.content,
+            sourceAppBundleID: nil,
+            contentType: item.contentType
+        )
+        RichTextCache.shared.invalidate(itemID: item.itemID)
+        ClipItemStore.saveAndNotifyContent(modelContext)
+        isEditing = false
+        editingContent = ""
     }
 
     @ViewBuilder

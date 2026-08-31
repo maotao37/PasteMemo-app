@@ -686,6 +686,12 @@ final class ClipboardManager: ObservableObject {
 
     /// 检查快照中的文本内容是否与 ClipItem 当前的 content 一致。
     /// 若包含文本且与 item.content 不一致，说明条目内容已被修改，快照已失效。
+    ///
+    /// A snapshot without a decodable text representation is deliberately treated as
+    /// stale. Replaying such a snapshot after an edit is unsafe: custom/rich UTIs may
+    /// still contain the old text while the plain `content` field has changed. Falling
+    /// through to the normal writer is the only way to guarantee that the edited value
+    /// is what reaches the target application.
     func snapshotMatchesContent(_ data: Data, content: String) -> Bool {
         guard
             let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
@@ -697,18 +703,39 @@ final class ClipboardManager: ObservableObject {
             NSPasteboard.PasteboardType.string.rawValue,
             "NSStringPboardType",
             "public.utf8-plain-text",
-            "public.plain-text"
+            "public.plain-text",
+            "public.utf16-plain-text"
         ]
 
+        var foundText = false
         for typeKey in textTypes {
-            if let textData = dict[typeKey], let str = String(data: textData, encoding: .utf8) {
-                if str != content {
-                    return false
-                }
-            }
+            guard let textData = dict[typeKey] else { continue }
+            guard let str = decodePasteboardText(textData) else { return false }
+            foundText = true
+            if str != content { return false }
         }
 
-        return true
+        return foundText
+    }
+
+    /// Pasteboard text is normally UTF-8, but legacy `NSStringPboardType` producers
+    /// may write UTF-16. Decode the common encodings before deciding whether a snapshot
+    /// belongs to the current clip.
+    private func decodePasteboardText(_ data: Data) -> String? {
+        for encoding in [
+            String.Encoding.utf8,
+            .utf16,
+            .utf16LittleEndian,
+            .utf16BigEndian,
+            .utf32,
+            .utf32LittleEndian,
+            .utf32BigEndian
+        ] {
+            if let text = String(data: data, encoding: encoding) {
+                return text
+            }
+        }
+        return nil
     }
 
     private func captureRichTextData(from pasteboard: NSPasteboard) -> (data: Data?, type: String?) {

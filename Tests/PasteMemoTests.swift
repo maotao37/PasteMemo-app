@@ -846,6 +846,28 @@ struct RelayManagerTests {
         #expect(ClipboardManager.shared.snapshotMatchesContent(blob, content: "修改后的新内容") == false)
     }
 
+    @Test("Snapshot without text is never replayed after content edits")
+    @MainActor func snapshotWithoutTextDoesNotMatch() throws {
+        let snapshotDict: [String: Data] = [
+            "public.rtf": Data("old-rich-text".utf8),
+            "com.example.custom": Data("old-content".utf8)
+        ]
+        let blob = try PropertyListSerialization.data(fromPropertyList: snapshotDict, format: .binary, options: 0)
+
+        #expect(ClipboardManager.shared.snapshotMatchesContent(blob, content: "new-content") == false)
+    }
+
+    @Test("Legacy UTF-16 pasteboard text is compared with current content")
+    @MainActor func snapshotUTF16TextConsistencyCheck() throws {
+        let snapshotDict: [String: Data] = [
+            "NSStringPboardType": "原始内容".data(using: .utf16)!
+        ]
+        let blob = try PropertyListSerialization.data(fromPropertyList: snapshotDict, format: .binary, options: 0)
+
+        #expect(ClipboardManager.shared.snapshotMatchesContent(blob, content: "原始内容") == true)
+        #expect(ClipboardManager.shared.snapshotMatchesContent(blob, content: "修改后的新内容") == false)
+    }
+
     @Test("resetStaleSnapshots clears snapshot and rich text")
     @MainActor func resetStaleSnapshots() {
         let item = ClipItem(
