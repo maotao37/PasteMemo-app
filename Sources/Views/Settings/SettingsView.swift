@@ -169,10 +169,10 @@ struct SMSCodeSettingsSection: View {
         }
     }
 
-    /// Feedback sentence with an inline tappable link — built as AttributedString
-    /// so the link keeps its accent color inside the secondary-styled footer.
+    /// 带内联可点击链接的反馈文案 — 使用 AttributedString 构建，
+    /// 确保链接在二级样式的页脚中保持强调色。
     private var feedbackLine: AttributedString {
-        var line = AttributedString(L10n.tr("settings.smsCode.feedback") + " ")
+        let line = AttributedString(L10n.tr("settings.smsCode.feedback") + " ")
         var link = AttributedString(L10n.tr("settings.smsCode.feedbackLink"))
         link.link = URL(string: "https://github.com/lifedever/PasteMemo-app/issues")
         link.foregroundColor = Color.accentColor

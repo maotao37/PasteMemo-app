@@ -278,8 +278,65 @@ struct QuickPanelView: View {
         lastNavigatedID = id
     }
 
+    // MARK: - Body
+
     var body: some View {
         ZStack(alignment: .top) {
+            panelContent
+            suggestionsOverlay
+        }
+        .onAppear {
+            handleAppear()
+        }
+        .onDisappear {
+            handleDisappear()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickPanelWillDismiss)) { _ in
+            handleQuickPanelWillDismiss()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
+            isSearchFocused = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteDigit)) { note in
+            guard let index = note.userInfo?["index"] as? Int else { return }
+            pasteDigitWhilePinned(index: index)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteTargetChanged)) { _ in
+            targetApp = QuickPanelWindowController.shared.previousApp
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .quickPanelDidShow)) { _ in
+            handleQuickPanelDidShow()
+        }
+        .onChange(of: searchText) {
+            handleSearchTextChange()
+        }
+        .onChange(of: selectedFilter) {
+            handleSelectedFilterChange()
+        }
+        .onChange(of: pill) {
+            handlePillChange()
+        }
+        .onChange(of: quickPanelSecondaryRowRaw) {
+            selectedFilter = .all
+            pill = nil
+        }
+        .onChange(of: store.items) {
+            handleStoreItemsChange()
+        }
+        .onChange(of: selectedItemIDs) {
+            isPreviewEditing = false
+        }
+        .onChange(of: layoutState.shouldShowPreview) {
+            if !layoutState.shouldShowPreview { isPreviewEditing = false }
+        }
+        .onChange(of: relaySplitText) {
+            handleRelaySplitChange()
+        }
+        .localized()
+    }
+
+    @ViewBuilder
+    private var panelContent: some View {
         VStack(spacing: 0) {
             searchBar
             // 标签条排除背景拖拽：否则点分类标签时窗口跟着微拖「晃动」
@@ -307,7 +364,10 @@ struct QuickPanelView: View {
             footerBar
         }
         .frame(minWidth: 360, minHeight: 420)
-        // Floating group suggestions overlay
+    }
+
+    @ViewBuilder
+    private var suggestionsOverlay: some View {
         if isShowingSuggestions {
             VStack(spacing: 0) {
                 Spacer().frame(height: 48)
@@ -327,180 +387,158 @@ struct QuickPanelView: View {
             }
             .allowsHitTesting(true)
         }
-        } // ZStack
-        .onAppear {
-            store.configure(modelContext: modelContext)
-            rebuildGroupedItems()
-            selectDefaultHistoryItem()
-            lastSeenFirstItemID = store.queryFirstItemID()
-            installKeyMonitor()
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(50))
-                isSearchFocused = true
-            }
-        }
-        .onDisappear {
-            removeKeyMonitor()
-            store.isActive = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelWillDismiss)) { _ in
-            // isActive 必须在这里归位，不能只靠 onDisappear：面板隐藏走的是
-            // orderOut，视图仍留在窗口层级里，onDisappear 不会触发。isActive
-            // 悬在 true 会让隐藏期间的每次复制都同步跑全量 performRefresh
-            // （20k 条实测每次 ~40-90ms），而设计上的惰性路径（标记
-            // needsRefresh、下次打开时 refreshIfNeeded 消费）形同虚设。
-            store.isActive = false
-            // 关闭前清空 "/" 触发的分组建议及相关状态，避免下次打开首帧闪现
-            searchText = ""
-            groupSuggestionIndex = -1
-            pill = nil
-            showCommandPalette = false
-            suggestionsArmed = false
-            userTypedSlash = false
-            isPreviewEditing = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPinnedResignKey)) { _ in
-            // Pinned + user clicked another app: release search focus so the text field
-            // stops dragging key status back to the panel.
-            isSearchFocused = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteDigit)) { note in
-            // 置顶时全局 ⌘1–9 命中：粘贴对应项，面板保持打开
-            guard let index = note.userInfo?["index"] as? Int else { return }
-            pasteDigitWhilePinned(index: index)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelPasteTargetChanged)) { _ in
-            // 置顶期间用户切到别的 App，刷新底部"粘贴到 X"（previousApp 已在控制器侧更新）
-            targetApp = QuickPanelWindowController.shared.previousApp
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .quickPanelDidShow)) { _ in
-            showCommandPalette = false
-            searchText = ""
-            pill = nil
-            let restoredFilter = restoredFilterOnShow()
-            selectedFilter = restoredFilter
-            isPanelPinned = false
-            suggestionsArmed = false
-            userTypedSlash = false
-            userInteractedSinceShow = false
-            isGridFocused = false
-            isPreviewEditing = false
-            // 延后一小会儿再放开建议浮层，给 SwiftUI 一次 tick 把状态提交到渲染树，
-            // 避免刚 orderFrontRegardless 时显示上一次的 `/` 建议面板。
-            // 代价：打开 80ms 内如果立即输入 `/`，这一帧的建议不会渲染，
-            // 下次 searchText 变动即会正常显示，实际几乎感知不到。
-            store.isActive = true
-            // Arming the `/` suggestion overlay and consuming any pending dirty flag both
-            // need the UI state reset above to be committed first, otherwise a stale `/`
-            // dropdown can flash through. Serialize them in one Task so refresh happens
-            // strictly after arming.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(80))
-                suggestionsArmed = true
-                store.refreshIfNeeded()
-            }
-            let latestItemID = store.queryFirstItemID()
-            if latestItemID != lastSeenFirstItemID {
-                store.resetFilters()
-            } else {
-                store.smartGroupFilter = nil
-                store.updateQuery(searchText: .set(""), sourceApp: .set(nil), groupName: .set(nil))
-            }
-            lastSeenFirstItemID = latestItemID
+    }
 
-            // 恢复上次的主筛选：同步写回 store，保证首帧即为正确列表（不闪“全部”）。
-            // 此刻 pill 恒为 nil。`restoredFilterOnShow()` 已用缓存计数校验过维度/存在性；
-            // 这里再用真实 totalCount 兜底关闭期间被删/清空的组或类型。
-            if restoredFilter != .all {
-                applyFilters(primary: restoredFilter, pill: nil)
-                if store.totalCount == 0 {
-                    selectedFilter = .all
-                    applyFilters(primary: .all, pill: nil)
-                }
-            }
+    // MARK: - Lifecycle & Event Handlers
 
-            rebuildGroupedItems()
-            scrollResetToken = UUID()
-            selectDefaultHistoryItem()
-            targetApp = QuickPanelWindowController.shared.previousApp
+    private func handleAppear() {
+        store.configure(modelContext: modelContext)
+        rebuildGroupedItems()
+        selectDefaultHistoryItem()
+        lastSeenFirstItemID = store.queryFirstItemID()
+        installKeyMonitor()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
             isSearchFocused = true
         }
-        .onChange(of: searchText) {
-            if pill != nil {
-                // Pill is active — search text is just keyword within the pill's scope
-                store.searchText = searchText
-            } else if isSlashSubmenuMode {
-                // The `/` submenu is in control (query selects a group/type/app), so
-                // pause content search. When nothing matches — or the user pressed Esc
-                // to leave the submenu — we fall through and search the `/`-prefixed
-                // query literally (e.g. clips starting with "/advisor").
-                store.searchText = ""
-            } else {
-                store.searchText = searchText
-            }
-            // Default-select the first suggestion row when typing `/`
-            groupSuggestionIndex = totalSuggestionCount > 0 ? 0 : -1
+    }
+
+    private func handleDisappear() {
+        removeKeyMonitor()
+        store.isActive = false
+    }
+
+    private func handleQuickPanelWillDismiss() {
+        // isActive 必须在这里归位，不能只靠 onDisappear：面板隐藏走的是
+        // orderOut，视图仍留在窗口层级里，onDisappear 不会触发。isActive
+        // 悬在 true 会让隐藏期间的每次复制都同步跑全量 performRefresh
+        // （20k 条实测每次 ~40-90ms），而设计上的惰性路径（标记
+        // needsRefresh、下次打开时 refreshIfNeeded 消费）形同虚设。
+        store.isActive = false
+        // 关闭前清空 "/" 触发的分组建议及相关状态，避免下次打开首帧闪现
+        searchText = ""
+        groupSuggestionIndex = -1
+        pill = nil
+        showCommandPalette = false
+        suggestionsArmed = false
+        userTypedSlash = false
+        isPreviewEditing = false
+    }
+
+    private func handleQuickPanelDidShow() {
+        showCommandPalette = false
+        searchText = ""
+        pill = nil
+        let restoredFilter = restoredFilterOnShow()
+        selectedFilter = restoredFilter
+        isPanelPinned = false
+        suggestionsArmed = false
+        userTypedSlash = false
+        userInteractedSinceShow = false
+        isGridFocused = false
+        isPreviewEditing = false
+        // 延后一小会儿再放开建议浮层，给 SwiftUI 一次 tick 把状态提交到渲染树，
+        // 避免刚 orderFrontRegardless 时显示上一次的 `/` 建议面板。
+        // 代价：打开 80ms 内如果立即输入 `/`，这一帧的建议不会渲染，
+        // 下次 searchText 变动即会正常显示，实际几乎感知不到。
+        store.isActive = true
+        // 建议浮层启用与消费未处理的脏标记均需在 UI 重置提交后执行
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            suggestionsArmed = true
+            store.refreshIfNeeded()
         }
-        .onChange(of: selectedFilter) {
-            isPreviewEditing = false
-            // 始终记录最近一次主筛选；恢复与否由 rememberLastFilter 在显示时决定。
-            lastFilterStorage = selectedFilter.storageString
-            // 切分类回到标签级焦点：←→ 继续切分类，↓ 才进入网格
-            isGridFocused = false
-            applyFiltersToStore()
-            // 切分类 = 导航动作，一律选中新列表第一条（与打开面板时「列表顶部 = 预览」
-            // 一致）。不能交给 onChange(of: store.items) 的兜底——它只在旧选中项从新列表
-            // 消失时才重选，于是「全部 → 文本 → 全部」会把途中自动选中的文本条目带回
-            // 「全部」，看起来选中随机跳到了第三行。store.applyFilters() 是同步的
-            // （show 流程同一序列），这里 rebuild 后缓存即为新列表。
-            rebuildGroupedItems()
+        let latestItemID = store.queryFirstItemID()
+        if latestItemID != lastSeenFirstItemID {
+            store.resetFilters()
+        } else {
+            store.smartGroupFilter = nil
+            store.updateQuery(searchText: .set(""), sourceApp: .set(nil), groupName: .set(nil))
+        }
+        lastSeenFirstItemID = latestItemID
+
+        // 恢复上次的主筛选：同步写回 store，保证首帧即为正确列表（不闪“全部”）。
+        // 此刻 pill 恒为 nil。`restoredFilterOnShow()` 已用缓存计数校验过维度/存在性；
+        // 这里再用真实 totalCount 兜底关闭期间被删/清空的组或类型。
+        if restoredFilter != .all {
+            applyFilters(primary: restoredFilter, pill: nil)
+            if store.totalCount == 0 {
+                selectedFilter = .all
+                applyFilters(primary: .all, pill: nil)
+            }
+        }
+
+        rebuildGroupedItems()
+        scrollResetToken = UUID()
+        selectDefaultHistoryItem()
+        targetApp = QuickPanelWindowController.shared.previousApp
+        isSearchFocused = true
+    }
+
+    private func handleSearchTextChange() {
+        if pill != nil {
+            // 激活了药丸筛选：搜索文本仅作为该药丸作用域内的关键字
+            store.searchText = searchText
+        } else if isSlashSubmenuMode {
+            // 当前处于 "/" 子菜单选择模式，暂停内容搜索
+            store.searchText = ""
+        } else {
+            store.searchText = searchText
+        }
+        // 输入 "/" 时默认选中首个建议行
+        groupSuggestionIndex = totalSuggestionCount > 0 ? 0 : -1
+    }
+
+    private func handleSelectedFilterChange() {
+        isPreviewEditing = false
+        // 始终记录最近一次主筛选；恢复与否由 rememberLastFilter 在显示时决定。
+        lastFilterStorage = selectedFilter.storageString
+        // 切分类回到标签级焦点：←→ 继续切分类，↓ 才进入网格
+        isGridFocused = false
+        applyFiltersToStore()
+        // 切分类 = 导航动作，一律选中新列表第一条（与打开面板时「列表顶部 = 预览」
+        // 一致）。不能交给 onChange(of: store.items) 的兜底——它只在旧选中项从新列表
+        // 消失时才重选，于是「全部 → 文本 → 全部」会把途中自动选中的文本条目带回
+        // 「全部」，看起来选中随机跳到了第三行。store.applyFilters() 是同步的
+        // （show 流程同一序列），这里 rebuild 后缓存即为新列表。
+        rebuildGroupedItems()
+        selectDefaultHistoryItem()
+    }
+
+    private func handlePillChange() {
+        applyFiltersToStore()
+        // 药丸筛选切换也是导航动作，选中新列表第一条
+        rebuildGroupedItems()
+        selectDefaultHistoryItem()
+    }
+
+    private func handleStoreItemsChange() {
+        rebuildGroupedItems()
+        // 面板可见但用户还没任何操作：这次数据刷新多半是打开一瞬间赶到的新剪贴
+        // （轮询延迟跨过了 show），选中跟随新的第一条，保持「列表顶部 = 预览」。
+        if HotkeyManager.shared.isQuickPanelVisible, !userInteractedSinceShow {
             selectDefaultHistoryItem()
+            return
         }
-        .onChange(of: pill) {
-            applyFiltersToStore()
-            // 同上：pill 筛选切换也是导航动作，选中新列表第一条。
-            rebuildGroupedItems()
-            selectDefaultHistoryItem()
+        guard selectedItemIDs.isEmpty || selectedItemIDs.isDisjoint(with: cachedIDSet) else { return }
+        let firstID = defaultItem?.persistentModelID
+        if let firstID {
+            selectedItemIDs = [firstID]
+            selectionAnchor = firstID
+        } else {
+            selectedItemIDs.removeAll()
+            selectionAnchor = nil
         }
-        .onChange(of: quickPanelSecondaryRowRaw) {
-            // 切换 tabBar 维度时，相关过滤会失配，统一重置成干净状态
-            selectedFilter = .all
-            pill = nil
+        lastNavigatedID = firstID
+    }
+
+    private func handleRelaySplitChange() {
+        guard let text = relaySplitText else { return }
+        SplitWindowController.shared.show(text: text) { delimiter in
+            guard let parts = RelaySplitter.split(text, by: delimiter) else { return }
+            RelayManager.shared.addToQueue(texts: parts)
         }
-        .onChange(of: store.items) {
-            rebuildGroupedItems()
-            // 面板可见但用户还没任何操作：这次数据刷新多半是打开一瞬间赶到的新剪贴
-            // （轮询延迟跨过了 show），选中跟随新的第一条，保持「列表顶部 = 预览」。
-            if HotkeyManager.shared.isQuickPanelVisible, !userInteractedSinceShow {
-                selectDefaultHistoryItem()
-                return
-            }
-            guard selectedItemIDs.isEmpty || selectedItemIDs.isDisjoint(with: cachedIDSet) else { return }
-            let firstID = defaultItem?.persistentModelID
-            if let firstID {
-                selectedItemIDs = [firstID]
-                selectionAnchor = firstID
-            } else {
-                selectedItemIDs.removeAll()
-                selectionAnchor = nil
-            }
-            lastNavigatedID = firstID
-        }
-        .onChange(of: selectedItemIDs) {
-            isPreviewEditing = false
-        }
-        .onChange(of: layoutState.shouldShowPreview) {
-            if !layoutState.shouldShowPreview { isPreviewEditing = false }
-        }
-        .onChange(of: relaySplitText) {
-            guard let text = relaySplitText else { return }
-            SplitWindowController.shared.show(text: text) { delimiter in
-                guard let parts = RelaySplitter.split(text, by: delimiter) else { return }
-                RelayManager.shared.addToQueue(texts: parts)
-            }
-            relaySplitText = nil
-        }
-        .localized()
+        relaySplitText = nil
     }
 
     // MARK: - Search
@@ -1991,6 +2029,8 @@ struct QuickPanelView: View {
             }
         case .transform(let ruleAction):
             if let item = currentItem {
+                // 使用规则执行引擎转换内容并更新显示标题与快照
+                let processed = AutomationEngine.shared.applyAction(ruleAction, to: item.content)
                 let contentChanged = processed != item.content
                 item.content = processed
                 item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
