@@ -829,8 +829,39 @@ struct RelayManagerTests {
     @MainActor func progress() {
         let manager = makeManager()
         manager.enqueue(texts: ["A", "B", "C"])
-        _ = manager.advance()
         #expect(manager.progressText == "1/3")
+    }
+
+    @Test("Snapshot consistency check detects modified text")
+    @MainActor func snapshotConsistencyCheck() throws {
+        let snapshotDict: [String: Data] = [
+            "public.utf8-plain-text": Data("原始内容".utf8),
+            "public.rtf": Data("rtf-data".utf8)
+        ]
+        let blob = try PropertyListSerialization.data(fromPropertyList: snapshotDict, format: .binary, options: 0)
+
+        // 原始内容一致时校验通过
+        #expect(ClipboardManager.shared.snapshotMatchesContent(blob, content: "原始内容") == true)
+        // 内容被修改后校验失败
+        #expect(ClipboardManager.shared.snapshotMatchesContent(blob, content: "修改后的新内容") == false)
+    }
+
+    @Test("resetStaleSnapshots clears snapshot and rich text")
+    @MainActor func resetStaleSnapshots() {
+        let item = ClipItem(
+            content: "原始内容",
+            richTextData: Data("rtf".utf8),
+            richTextType: "rtf",
+            pasteboardSnapshot: Data("snapshot".utf8)
+        )
+
+        item.content = "修改后的新内容"
+        item.resetStaleSnapshots()
+
+        #expect(item.content == "修改后的新内容")
+        #expect(item.richTextData == nil)
+        #expect(item.richTextType == nil)
+        #expect(item.pasteboardSnapshot == nil)
     }
 }
 

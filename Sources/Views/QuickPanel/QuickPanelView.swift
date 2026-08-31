@@ -1948,12 +1948,11 @@ struct QuickPanelView: View {
             }
         case .transform(let ruleAction):
             if let item = currentItem {
-                let processed = AutomationEngine.shared.applyAction(ruleAction, to: item.content)
+                let contentChanged = processed != item.content
                 item.content = processed
                 item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-                if ruleAction == .stripRichText {
-                    item.richTextData = nil
-                    item.richTextType = nil
+                if contentChanged || ruleAction == .stripRichText {
+                    item.resetStaleSnapshots()
                 }
                 ClipItemStore.saveAndNotify(modelContext)
             }
@@ -2356,10 +2355,9 @@ struct QuickPanelView: View {
         let contentChanged = processed != item.content
         item.content = processed
         item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-        // Clear rich text whenever content changed (or user explicitly asked).
+        // 内容变更或显式清除富文本时，重置旧快照与富文本
         if contentChanged || action == .stripRichText {
-            item.richTextData = nil
-            item.richTextType = nil
+            item.resetStaleSnapshots()
         }
         ClipItemStore.saveAndNotify(modelContext)
     }
@@ -2394,11 +2392,9 @@ struct QuickPanelView: View {
         guard contentChanged || AutomationEngine.containsSpecialAction(actions) else { return }
         item.content = processed
         item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-        // Clear rich text if content changed — otherwise stale rich formatting
-        // shows through in the preview pane even though content has been updated.
+        // 内容发生变更时清除旧快照与富文本，防止旧格式或快照回放干扰粘贴
         if contentChanged || actions.contains(.stripRichText) {
-            item.richTextData = nil
-            item.richTextType = nil
+            item.resetStaleSnapshots()
         }
         // markSensitive / pin / move-to-group — shared with the capture & main-window paths.
         ClipboardManager.shared.applyMetadataActions(actions, to: item, context: modelContext)

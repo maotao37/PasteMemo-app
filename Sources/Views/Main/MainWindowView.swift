@@ -1126,8 +1126,7 @@ struct MainWindowView: View {
             item.content = processed
             item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
             if contentChanged || ruleAction == .stripRichText {
-                item.richTextData = nil
-                item.richTextType = nil
+                item.resetStaleSnapshots()
             }
             ClipItemStore.saveAndNotify(modelContext)
         case .delete:
@@ -1219,8 +1218,7 @@ struct MainWindowView: View {
             // no longer matches the new plain text and would leak through the
             // preview pane (which prefers rich content when present).
             if contentChanged || actions.contains(.stripRichText) {
-                target.richTextData = nil
-                target.richTextType = nil
+                target.resetStaleSnapshots()
             }
             // markSensitive / pin / move-to-group — shared with the capture & quick-panel paths.
             ClipboardManager.shared.applyMetadataActions(actions, to: target, context: modelContext)

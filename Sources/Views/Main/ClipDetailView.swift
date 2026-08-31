@@ -256,14 +256,13 @@ struct ClipDetailView: View {
 
     private func saveEdit() {
         item.content = editingContent
-        if item.richTextData != nil {
-            item.richTextData = nil
-            item.richTextType = nil
-        }
+        // 内容已被修改，清空旧快照与富文本数据，防止按回车粘贴时依然输出未修改的旧内容
+        item.resetStaleSnapshots()
         item.displayTitle = ClipItem.buildTitle(
             content: item.content,
             contentType: item.contentType,
-            imageData: item.imageData
+            imageData: item.imageData,
+            filePaths: item.filePaths
         )
         item.isSensitive = SensitiveDetector.isSensitive(
             content: item.content,
@@ -423,6 +422,7 @@ struct ClipDetailView: View {
                         let fmt = colorDisplayFormat ?? parsed.originalFormat
                         item.content = updated.formatted(fmt)
                         item.displayTitle = item.content
+                        item.resetStaleSnapshots()
                     }
 
                 Text(parsed.formatted(displayFmt))
@@ -436,6 +436,7 @@ struct ClipDetailView: View {
                             colorDisplayFormat = fmt
                             item.content = parsed.formatted(fmt)
                             item.displayTitle = item.content
+                            item.resetStaleSnapshots()
                         } label: {
                             Text(fmt.rawValue)
                                 .font(.system(size: 11, weight: .medium))

@@ -684,6 +684,33 @@ final class ClipboardManager: ObservableObject {
         return true
     }
 
+    /// 检查快照中的文本内容是否与 ClipItem 当前的 content 一致。
+    /// 若包含文本且与 item.content 不一致，说明条目内容已被修改，快照已失效。
+    func snapshotMatchesContent(_ data: Data, content: String) -> Bool {
+        guard
+            let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+            let dict = plist as? [String: Data],
+            !dict.isEmpty
+        else { return false }
+
+        let textTypes = [
+            NSPasteboard.PasteboardType.string.rawValue,
+            "NSStringPboardType",
+            "public.utf8-plain-text",
+            "public.plain-text"
+        ]
+
+        for typeKey in textTypes {
+            if let textData = dict[typeKey], let str = String(data: textData, encoding: .utf8) {
+                if str != content {
+                    return false
+                }
+            }
+        }
+
+        return true
+    }
+
     private func captureRichTextData(from pasteboard: NSPasteboard) -> (data: Data?, type: String?) {
         // Priority: RTFD (carries inline images — Notes, Pages, Word, TextEdit) >
         //           HTML (browsers, most modern apps) > RTF (legacy, no images).
@@ -1134,12 +1161,20 @@ final class ClipboardManager: ObservableObject {
         //
         // `restorePasteboardSnapshot` itself drops Office-private types (issue #28) so Word
         // paste doesn't get hijacked by its private internal clipboard.
-        if !textOnly, let snapshot = item.pasteboardSnapshot,
-           restorePasteboardSnapshot(snapshot, to: pasteboard) {
-            pasteboard.markAsPasteMemoWrite()
-            lastChangeCount = pasteboard.changeCount
-            skipRelayMonitorIfActive()
-            return
+        if !textOnly, let snapshot = item.pasteboardSnapshot {
+            if snapshotMatchesContent(snapshot, content: item.content),
+               restorePasteboardSnapshot(snapshot, to: pasteboard) {
+                pasteboard.markAsPasteMemoWrite()
+                lastChangeCount = pasteboard.changeCount
+                skipRelayMonitorIfActive()
+                return
+            } else {
+                // 快照失效（条目内容已被编辑修改），清理失效快照并回退到正常文本写入流程
+                item.resetStaleSnapshots()
+                if let context = item.modelContext {
+                    ClipItemStore.saveAndNotifyContent(context)
+                }
+            }
         }
 
         switch item.contentType {
@@ -1928,8 +1963,7 @@ extension ClipboardManager: ClipboardControllable {
             // pasteboard. Archive-only rules (writeBack off) keep their rich text as
             // before. (issue #62)
             if actions.contains(.stripRichText) || (writeBack && textChanged) {
-                item.richTextData = nil
-                item.richTextType = nil
+                item.resetStaleSnapshots()
             }
         }
         applyMetadataActions(actions, to: item, context: context)

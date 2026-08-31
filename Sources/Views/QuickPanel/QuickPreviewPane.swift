@@ -289,6 +289,7 @@ struct QuickPreviewPane: View {
                             colorDisplayFormat = fmt
                             item.content = parsed.formatted(fmt)
                             item.displayTitle = item.content
+                            item.resetStaleSnapshots()
                         } label: {
                             Text(fmt.rawValue)
                                 .font(.system(size: 10, weight: .medium))

@@ -260,6 +260,13 @@ final class ClipItem {
         }
     }
 
+    /// 重置已失效的富文本与剪贴板快照（当文本内容被编辑或发生变更时调用）
+    func resetStaleSnapshots() {
+        self.richTextData = nil
+        self.richTextType = nil
+        self.pasteboardSnapshot = nil
+    }
+
     /// Parsed file paths from `filePaths` (newline-separated). Empty array if nil/empty.
     var resolvedFilePaths: [String] {
         guard let raw = filePaths, !raw.isEmpty else { return [] }

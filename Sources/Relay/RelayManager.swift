@@ -183,6 +183,8 @@ final class RelayManager {
     func updateItem(at index: Int, content: String) {
         guard index >= 0, index < items.count else { return }
         items[index].content = content
+        // 文本已编辑，清空旧快照避免粘贴时恢复旧内容
+        items[index].pasteboardSnapshot = nil
     }
 
     func reverseItems() {
