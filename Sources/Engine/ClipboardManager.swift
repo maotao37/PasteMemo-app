@@ -313,9 +313,10 @@ final class ClipboardManager: ObservableObject {
         if hasRawText, richText.data != nil {
             let content = rawText!
             var detected = detectContentType(content)
-            // Rich text sources are prose, not code — skip code-language detection which would
-            // otherwise misread `--` / `->` as SQL/code.
-            if detected.type == .code {
+            // 富文本源通常为排版文本而非源码，避免将 `--` 或 `->` 误判为 SQL 等编程语言。
+            // Markdown 类型豁免降级：网页文档或聊天窗口常将渲染后的 HTML 与原始 Markdown 同时写入剪贴板，
+            // 且 Markdown 走结构化特征判定（CodeDetector.isMarkdown），保留高亮能提供更好的预览体验。
+            if detected.type == .code, detected.language != CodeLanguage.markdown.rawValue {
                 detected = DetectedContent(type: .text, language: nil)
             }
             return ClipItem(

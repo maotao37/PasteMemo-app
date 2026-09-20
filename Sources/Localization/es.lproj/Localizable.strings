@@ -323,6 +323,8 @@
 /* Text Editing */
 "action.edit" = "Editar";
 "action.save" = "Guardar";
+"action.markdownToPlain" = "Markdown a texto sin formato";
+"action.removeEmptyLines" = "Eliminar líneas vacías";
 
 /* Multi-select */
 "action.merge" = "Combinar";

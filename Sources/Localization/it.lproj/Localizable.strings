@@ -415,6 +415,8 @@
 /* Text Editing */
 "action.edit" = "Modifica";
 "action.save" = "Salva";
+"action.markdownToPlain" = "Da Markdown a testo semplice";
+"action.removeEmptyLines" = "Rimuovi righe vuote";
 
 /* Multi-select */
 "action.merge" = "Unisci";

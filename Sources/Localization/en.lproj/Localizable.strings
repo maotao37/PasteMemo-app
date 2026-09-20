@@ -464,6 +464,8 @@
 /* Text Editing */
 "action.edit" = "Edit";
 "action.save" = "Save";
+"action.markdownToPlain" = "Markdown to Plain Text";
+"action.removeEmptyLines" = "Remove Empty Lines";
 
 /* Multi-select */
 "action.merge" = "Merge";

@@ -379,7 +379,7 @@ struct CodeDetectorTests {
         #expect(CodeDetector.detectLanguage(text) == nil)
     }
 
-    @Test("Markdown-like text with tables not wrongly detected")
+    @Test("Markdown table detected as markdown")
     func markdownTable() {
         let text = """
         | 用户名 | 评分 | 评价 |
@@ -387,9 +387,247 @@ struct CodeDetectorTests {
         | 张三   | 3    | 可信 |
         | 李四   | 4    | 不错 |
         """
-        // Tables could be markdown — that's acceptable.
-        // But should NOT be detected as JSON, Java, etc.
         let result = CodeDetector.detectLanguage(text)
-        #expect(result == nil || result == .markdown, "Table should be nil or markdown, got: \(String(describing: result))")
+        #expect(result == .markdown, "Table should be markdown, got: \(String(describing: result))")
+    }
+
+    // MARK: - Markdown (structural detection; hljs scores typical markdown below
+    // its relevance gate and sometimes prefers shell/kotlin — see isMarkdown)
+
+    @Test("README with headings, lists and code fence detected as markdown")
+    func markdownReadme() {
+        let text = """
+        # Project Title
+
+        A short description of what this project does.
+
+        ## Features
+
+        - Fast clipboard history
+        - Smart type detection
+        - Keyboard shortcuts
+
+        ## Installation
+
+        ```bash
+        brew install pastememo
+        ```
+
+        For more info see the [docs](https://example.com/docs).
+        """
+        #expect(CodeDetector.detectLanguage(text) == .markdown)
+    }
+
+    @Test("Chinese markdown document with code fence detected as markdown")
+    func markdownChineseDoc() {
+        let text = """
+        # 使用指南
+
+        这是一份中文说明文档。
+
+        ## 功能列表
+
+        - 剪贴板历史记录
+        - 智能类型识别
+        - 快捷键支持
+
+        ## 安装步骤
+
+        1. 打开终端
+        2. 执行安装命令
+
+        详细内容请参考[文档](https://example.com)。
+        """
+        #expect(CodeDetector.detectLanguage(text) == .markdown)
+    }
+
+    @Test("问答排版格式文本正确识别为 Markdown")
+    func markdownQAAnswer() {
+        let text = """
+        Here's how to solve the problem:
+
+        1. First, install the dependency
+        2. Then run the setup script
+
+        ```bash
+        npm install && npm run setup
+        ```
+
+        That should fix the issue.
+        """
+        #expect(CodeDetector.detectLanguage(text) == .markdown)
+    }
+
+    @Test("Notes with bold, bullet list and blockquote detected as markdown")
+    func markdownBoldListQuote() {
+        let text = """
+        **重要提醒**
+
+        明天上午 10 点开会，请准时参加。
+
+        - 准备好周报
+        - 带上笔记本电脑
+
+        > 注意：会议室改到 3 楼
+        """
+        #expect(CodeDetector.detectLanguage(text) == .markdown)
+    }
+
+    @Test("Headings-only document detected as markdown, not shell")
+    func markdownHeadingsOnly() {
+        let text = """
+        # Title
+
+        ## Section One
+
+        Some intro text here.
+
+        ### Subsection
+
+        More details about the topic.
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == .markdown, "Heading-heavy doc was misdetected as: \(String(describing: result))")
+    }
+
+    @Test("Prose with inline link and inline code detected as markdown, not kotlin")
+    func markdownLinkAndCode() {
+        let text = """
+        Check out [this guide](https://example.com) for details.
+
+        Also see *the docs* and `code` inline.
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == .markdown, "Link prose was misdetected as: \(String(describing: result))")
+    }
+
+    @Test("Fenced code block alone detected as markdown")
+    func markdownCodeFenceOnly() {
+        let text = """
+        ```python
+        def hello():
+            print("world")
+        ```
+        """
+        #expect(CodeDetector.detectLanguage(text) == .markdown)
+    }
+
+    @Test("Bare bullet list not misdetected as a code language")
+    func markdownBareBulletList() {
+        let text = """
+        - 第一项
+        - 第二项
+        - 第三项
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == nil || result == .markdown,
+                "Bare list must not be detected as a programming language, got: \(String(describing: result))")
+    }
+
+    @Test("Bare numbered steps not misdetected as a code language")
+    func markdownBareNumberedSteps() {
+        let text = """
+        1. 打开设置
+        2. 点击通用
+        3. 选择关于本机
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == nil || result == .markdown,
+                "Numbered steps must not be detected as a programming language, got: \(String(describing: result))")
+    }
+
+    // MARK: - Markdown false-positive guards
+
+    @Test("Ruby file with leading comments stays Ruby, not markdown")
+    func rubyWithCommentsNotMarkdown() {
+        let text = """
+        # frozen_string_literal: true
+        # This module handles user auth
+        # It was added in v2.0
+        require 'jwt'
+
+        module Auth
+          def tokenize(user)
+            JWT.encode({id: user.id}, SECRET)
+          end
+        end
+        """
+        #expect(CodeDetector.detectLanguage(text) == .ruby)
+    }
+
+    @Test("C preprocessor lines are not markdown headings")
+    func cIncludeNotMarkdownHeading() {
+        let text = """
+        #include <stdio.h>
+        #include <stdlib.h>
+        #define MAX 100
+
+        int main() {
+            printf("Hello, World!\\n");
+            return 0;
+        }
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == .c || result == .cpp,
+                "C with #include/#define must stay C/C++, got: \(String(describing: result))")
+    }
+
+    @Test("包含外链注释的 Swift 代码依然识别为 Swift 而非 Markdown")
+    func swiftWithMarkdownLinkInComments() {
+        let text = """
+        // 详情请参考官方文档 [Swift Guide](https://swift.org/documentation)
+        import Foundation
+
+        struct UserManager {
+            func fetchUser(id: Int) -> String {
+                return "user_\(id)"
+            }
+        }
+        """
+        #expect(CodeDetector.detectLanguage(text) == .swift)
+    }
+
+    @Test("Dockerfile with section comments stays Dockerfile, not markdown")
+    func dockerfileWithSectionCommentsNotMarkdown() {
+        let text = """
+        # Base image
+
+        FROM node:20-alpine
+
+        # Install dependencies
+
+        COPY package*.json ./
+        RUN npm ci
+
+        # Start the app
+
+        CMD ["node", "index.js"]
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == .dockerfile,
+                "Comment-sectioned Dockerfile must stay Dockerfile, got: \(String(describing: result))")
+    }
+
+    @Test("YAML with section comments stays YAML, not markdown")
+    func yamlWithSectionCommentsNotMarkdown() {
+        let text = """
+        # Database settings
+
+        host: localhost
+        port: 5432
+
+        # Cache settings
+
+        redis:
+          host: 127.0.0.1
+          ttl: 300
+
+        # Logging
+
+        log_level: info
+        """
+        let result = CodeDetector.detectLanguage(text)
+        #expect(result == .yaml,
+                "Comment-sectioned YAML must stay YAML, got: \(String(describing: result))")
     }
 }

@@ -415,6 +415,8 @@
 /* Text Editing */
 "action.edit" = "編輯";
 "action.save" = "儲存";
+"action.markdownToPlain" = "Markdown 轉純文字";
+"action.removeEmptyLines" = "刪除空行";
 
 /* Multi-select */
 "action.merge" = "合併";

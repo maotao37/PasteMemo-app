@@ -139,6 +139,7 @@ struct ClipDetailView: View {
                 } else {
                     copyButton
                     if isEditableType { editButtons }
+                    if isEditableType { textTransformButtons }
                     sensitiveButton
                     pinButton
                     if !item.content.isEmpty { relayButton }
@@ -218,6 +219,28 @@ struct ClipDetailView: View {
         .controlSize(.small)
     }
 
+    /// 针对可编辑条目的快捷文本格式转换操作（Markdown 转纯文本、删除空行）
+    @ViewBuilder
+    private var textTransformButtons: some View {
+        Button {
+            applyTextTransform(MarkdownTextConverter.toPlainText, clearsMarkdownLabel: true)
+        } label: {
+            Label(L10n.tr("action.markdownToPlain"), systemImage: "doc.plaintext")
+                .font(.system(size: 11.5, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+
+        Button {
+            applyTextTransform(MarkdownTextConverter.removeEmptyLines)
+        } label: {
+            Label(L10n.tr("action.removeEmptyLines"), systemImage: "rectangle.compress.vertical")
+                .font(.system(size: 11.5, weight: .medium))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
     @ViewBuilder
     private var editButtons: some View {
         if isEditing {
@@ -269,8 +292,40 @@ struct ClipDetailView: View {
             sourceAppBundleID: nil,
             contentType: item.contentType
         )
+        RichTextCache.shared.invalidate(itemID: item.itemID)
         ClipItemStore.saveAndNotifyContent(modelContext)
         isEditing = false
+        textRefreshID = UUID()
+    }
+
+    /// 对当前剪贴条目应用单步文本转换（如 Markdown 转纯文本、删除空行），
+    /// 走与手动编辑保存相同的持久化路径，确保后续粘贴直接输出转换后的文本内容。
+    private func applyTextTransform(
+        _ transform: (String) -> String, clearsMarkdownLabel: Bool = false
+    ) {
+        let transformed = transform(item.content)
+        guard transformed != item.content else { return }
+
+        item.content = transformed
+        // 若 Markdown 格式已被清洗，移除 Markdown 语言徽标并恢复为普通文本类型
+        if clearsMarkdownLabel, item.codeLanguage == CodeLanguage.markdown.rawValue {
+            item.codeLanguage = nil
+            if item.contentType == .code { item.contentType = .text }
+        }
+        item.resetStaleSnapshots()
+        item.displayTitle = ClipItem.buildTitle(
+            content: item.content,
+            contentType: item.contentType,
+            imageData: item.imageData,
+            filePaths: item.filePaths
+        )
+        item.isSensitive = SensitiveDetector.isSensitive(
+            content: item.content,
+            sourceAppBundleID: nil,
+            contentType: item.contentType
+        )
+        RichTextCache.shared.invalidate(itemID: item.itemID)
+        ClipItemStore.saveAndNotifyContent(modelContext)
         textRefreshID = UUID()
     }
 

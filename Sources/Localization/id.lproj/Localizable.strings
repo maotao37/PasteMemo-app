@@ -415,6 +415,8 @@
 /* Text Editing */
 "action.edit" = "Edit";
 "action.save" = "Simpan";
+"action.markdownToPlain" = "Markdown ke teks biasa";
+"action.removeEmptyLines" = "Hapus baris kosong";
 
 /* Multi-select */
 "action.merge" = "Gabung";

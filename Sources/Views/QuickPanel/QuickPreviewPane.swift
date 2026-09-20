@@ -211,6 +211,30 @@ struct QuickPreviewPane: View {
                 .help(L10n.tr("action.save"))
             } else {
                 Button {
+                    applyTextTransform(MarkdownTextConverter.toPlainText, clearsMarkdownLabel: true)
+                } label: {
+                    Image(systemName: "doc.plaintext")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .help(L10n.tr("action.markdownToPlain"))
+
+                Button {
+                    applyTextTransform(MarkdownTextConverter.removeEmptyLines)
+                } label: {
+                    Image(systemName: "rectangle.compress.vertical")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .help(L10n.tr("action.removeEmptyLines"))
+
+                Button {
                     enterEditMode()
                 } label: {
                     Image(systemName: "pencil")
@@ -274,6 +298,36 @@ struct QuickPreviewPane: View {
         ClipItemStore.saveAndNotifyContent(modelContext)
         isEditing = false
         editingContent = ""
+    }
+
+    /// 对当前剪贴条目应用单步文本转换（如 Markdown 转纯文本、删除空行），
+    /// 走与手动编辑保存相同的持久化路径，确保后续粘贴直接输出转换后的文本内容。
+    private func applyTextTransform(
+        _ transform: (String) -> String, clearsMarkdownLabel: Bool = false
+    ) {
+        let transformed = transform(item.content)
+        guard transformed != item.content else { return }
+
+        item.content = transformed
+        // 若 Markdown 格式已被清洗，移除 Markdown 语言徽标并恢复为普通文本类型
+        if clearsMarkdownLabel, item.codeLanguage == CodeLanguage.markdown.rawValue {
+            item.codeLanguage = nil
+            if item.contentType == .code { item.contentType = .text }
+        }
+        item.resetStaleSnapshots()
+        item.displayTitle = ClipItem.buildTitle(
+            content: item.content,
+            contentType: item.contentType,
+            imageData: item.imageData,
+            filePaths: item.filePaths
+        )
+        item.isSensitive = SensitiveDetector.isSensitive(
+            content: item.content,
+            sourceAppBundleID: nil,
+            contentType: item.contentType
+        )
+        RichTextCache.shared.invalidate(itemID: item.itemID)
+        ClipItemStore.saveAndNotifyContent(modelContext)
     }
 
     @ViewBuilder
