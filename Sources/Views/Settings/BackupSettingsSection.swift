@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-struct BackupSettingsSection: View {
+struct BackupSection: View {
     @AppStorage("backupEnabled") private var backupEnabled = false
     @AppStorage("backupFrequency") private var backupFrequency = "1d"
     @AppStorage("backupMaxSlots") private var maxSlots = 3

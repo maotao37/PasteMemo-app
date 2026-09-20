@@ -29,14 +29,18 @@ enum VerificationCodeExtractor {
     static func isLikelyVerificationMessage(_ message: String) -> Bool {
         let text = normalize(clip(message))
         guard !isMarketingMessage(text) else { return false }
-        return !keywordRanges(in: text).isEmpty
+        guard !keywordRanges(in: text).isEmpty else { return false }
+        return !isSecurityAdvice(text)
     }
 
     /// Stage 2: extract the code. Returns nil when the message doesn't look like
     /// a verification SMS, or when no plausible candidate survives exclusion —
     /// in the latter case the caller should surface the full message instead.
     static func extract(from message: String) -> String? {
-        let text = normalize(clip(message))
+        extractNormalized(normalize(clip(message)))
+    }
+
+    private static func extractNormalized(_ text: String) -> String? {
         if let code = attemptExtraction(in: text) { return code }
         // SmsCode-style fallback: CJK SMS sometimes space out the code
         // ("验证码 3 3 4 4 5 5") in shapes the grouped patterns don't cover.
@@ -80,6 +84,10 @@ enum VerificationCodeExtractor {
         // Real-data additions (2026-08 chat.db validation): 和包"验证密码"、
         // 运营商"服务密码为"、途牛"密码是"、阿里云邮"操作码"
         "验证密码", "密码是", "密码为", "操作码",
+        // 网盘分享的提取码（issue #89）。同一个抽取器现在也服务剪贴板文本
+        // （`TextEntityExtractor`），百度网盘/阿里云盘的分享文案是那边的主场景；
+        // 短信里出现同样的措辞也确实是「一个待输入的码」，两条路径都成立。
+        "提取码", "提取碼",
         // zh-Hant
         "驗證碼", "校驗碼", "檢驗碼", "確認碼", "激活碼", "動態碼", "安全碼",
         "驗證代碼", "校驗代碼", "檢驗代碼", "確認代碼", "激活代碼", "動態代碼",
@@ -277,6 +285,53 @@ enum VerificationCodeExtractor {
 
     private static func isMarketingMessage(_ text: String) -> Bool {
         MARKETING_TAILS.contains { text.contains($0) }
+    }
+
+    // MARK: - Stage 1: security-advice suppression
+
+    /// Anti-fraud advisories and security-awareness broadcasts mention the
+    /// keyword in a NEGATED context ("请勿向他人泄露验证码", 网络安全宣传周 blasts)
+    /// and have no unsubscribe tail, so the marketing filter doesn't catch them —
+    /// they used to reach the fallback notification as "疑似验证码短信".
+    ///
+    /// The real safety valve here is `extractNormalized(text) == nil`: every
+    /// genuine code SMS carries a code, no matter how many "请勿泄露" /
+    /// "谨防诈骗" / "we'll NEVER call for this code" tails it appends (the
+    /// positive corpus is full of them), so none of them can reach this check.
+    /// Only a keyword-bearing message that yields no candidate at all is judged
+    /// on its wording — and then two signals make it advice, not a code SMS:
+    /// an explicit "don't disclose" / fraud-warning phrase, or sheer length
+    /// (real code SMS stay short; broadcasts run several hundred characters).
+    private static func isSecurityAdvice(_ text: String) -> Bool {
+        guard extractNormalized(text) == nil else { return false }
+        if text.count > ADVICE_LENGTH_THRESHOLD { return true }
+        return matches(ADVICE_COMBO_PATTERN, text) || matches(ADVICE_MARKER_PATTERN, text)
+    }
+
+    /// Longest code SMS in the corpus sits around 80 characters; advisories and
+    /// awareness broadcasts run 200+.
+    private static let ADVICE_LENGTH_THRESHOLD = 140
+
+    /// Negation + disclosure verb within a short window ("请勿…泄露"、
+    /// "工作人员不会向您索要"、"we will never ask for").
+    /// `(?s)` so the window spans line breaks — multi-line SMS are common.
+    private static let ADVICE_COMBO_PATTERN =
+        "(?s)(请勿|請勿|切勿|勿|不要|不得|严禁|嚴禁|谨防|謹防|警惕|不会|不會|从不|從不"
+        + "|never|do ?not|don.?t|will not|won.?t|cannot|can.?t)"
+        + ".{0,14}?"
+        + "(泄露|泄漏|洩露|洩漏|透露|告知|告诉|告訴|提供|索要|索取|骗取|騙取"
+        + "|share|disclose|reveal|ask|request|provide)"
+
+    /// Fraud-warning vocabulary that stands on its own.
+    private static let ADVICE_MARKER_PATTERN =
+        "(诈骗|詐騙|反诈|反詐|防骗|防騙|骗子|騙子|钓鱼网站|釣魚網站"
+        + "|scam|fraud|phishing)"
+
+    private static func matches(_ pattern: String, _ text: String) -> Bool {
+        text.range(
+            of: pattern,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
 
     // MARK: - Stage 2: scoring

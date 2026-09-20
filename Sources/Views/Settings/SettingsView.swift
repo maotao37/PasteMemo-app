@@ -3,41 +3,79 @@ import SwiftData
 import ServiceManagement
 import Carbon
 
-struct SettingsView: View {
-    @State private var selection: SettingsCategory? = .general
+/// 设置窗口侧边栏。窗口骨架是 AppKit 的 `SettingsSplitViewController`，
+/// 这里只负责这一栏的内容；宽度和分隔线由那边管。
+struct SettingsSidebar: View {
+    @EnvironmentObject private var nav: SettingsNavigationModel
 
     var body: some View {
-        // NavigationSplitView 让侧边栏拿到系统原生质感(macOS 26 上即悬浮
-        // Liquid Glass)。窗口不再随内容自适应高度,改为固定尺寸+面板内滚动
-        // (Form(.grouped) 自带滚动),与系统设置一致。
-        NavigationSplitView {
-            List(selection: $selection) {
-                Section {
-                    ForEach(SettingsCategory.functionGroup.filter(isVisible)) { sidebarRow($0) }
-                }
-                Section {
-                    ForEach(SettingsCategory.dataPrivacyGroup) { sidebarRow($0) }
-                }
-                Section {
-                    ForEach(SettingsCategory.aboutGroup) { sidebarRow($0) }
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                group(SettingsCategory.functionGroup.filter(isVisible))
+                group(SettingsCategory.dataPrivacyGroup)
+                group(SettingsCategory.aboutGroup)
             }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 230)
-        } detail: {
-            detailView(for: selection ?? .general)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
         }
-        .frame(minWidth: 700, minHeight: 460)
-        .localized()
+        .scrollContentBackground(.hidden)
     }
 
+    @ViewBuilder
+    private func group(_ categories: [SettingsCategory]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(categories) { sidebarRow($0) }
+        }
+        .padding(.bottom, 10)
+    }
+
+    /// 侧边栏一行：彩色圆角图标块 + 页名，尺寸照系统设置。
+    ///
+    /// 不用 `List`：它底层是 NSTableView，首次填充时行带着插入动画从下往上滑进来，
+    /// 打开窗口能明显看见图标「噗」一下窜上去（实测 AppKit 那层的 frame / insets
+    /// 全程不动，动的就是这个行插入动画），SwiftUI 侧的 `.transaction` 压不住它。
+    /// 侧边栏统共十来行固定项，不需要虚拟化，自绘反而把留白和行高抓得更准。
     private func sidebarRow(_ category: SettingsCategory) -> some View {
-        Label(L10n.tr(category.titleKey), systemImage: category.icon)
-            .tag(category)
+        let isSelected = nav.selection == category
+        return HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(category.tileColor.gradient)
+                .frame(width: 22, height: 22)
+                .overlay(
+                    Image(systemName: category.icon)
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.white)
+                )
+            Text(L10n.tr(category.titleKey))
+                .font(.system(size: 13))
+                .foregroundStyle(isSelected ? Color.white : Color.primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? Color.accentColor : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { nav.selection = category }
+        .pointerCursor()
     }
 
     /// 自动化条目仅在启用时出现。
     private func isVisible(_ category: SettingsCategory) -> Bool {
         category != .automation || ProManager.AUTOMATION_ENABLED
+    }
+}
+
+/// 设置窗口详情区。标题栏那对前进/后退箭头也挂在这里（经 hosting controller 桥接）。
+struct SettingsDetail: View {
+    @EnvironmentObject private var nav: SettingsNavigationModel
+
+    var body: some View {
+        detailView(for: nav.selection)
+            // 去掉标题栏底色和那条分隔线，内容直接从顶部开始，同系统设置
+            .toolbarBackground(.hidden, for: .windowToolbar)
     }
 
     @ViewBuilder
@@ -48,9 +86,9 @@ struct SettingsView: View {
         case .quickPanel: QuickPanelPane()
         case .preview: PreviewPane()
         case .shortcuts: ShortcutsTab()
-        case .relay: RelayTab()
         case .privacy: PrivacyTab()
         case .aiAgents: AIAgentIntegrationView()
+        case .aiService: AIServicePane()
         case .automation: AutomationTab()
         case .templates: TemplateLibraryView()
         case .statistics: StorageStatisticsView()
@@ -65,15 +103,15 @@ struct SettingsView: View {
 
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case general, appearance, quickPanel, preview
-    case shortcuts, relay, privacy, aiAgents, automation, templates, statistics, data
+    case shortcuts, privacy, aiAgents, aiService, automation, templates, statistics, data
     case sponsor, about
 
     var id: String { rawValue }
 
-    /// 功能设置：基础(通用/外观) → 快捷面板(快捷键/面板/预览与识别) → 进阶(接力/AI/自动化)。
+    /// 功能设置：基础(通用/外观) → 快捷面板(快捷键/面板/预览与识别) → 进阶(AI/自动化/模板)。
     static let functionGroup: [SettingsCategory] =
         [.general, .appearance, .shortcuts, .quickPanel, .preview,
-         .relay, .aiAgents, .automation, .templates]
+         .aiAgents, .aiService, .automation, .templates]
 
     /// 数据与隐私。
     static let dataPrivacyGroup: [SettingsCategory] = [.privacy, .statistics, .data]
@@ -88,9 +126,9 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .quickPanel: return "settings.quickPanel"
         case .preview: return "settings.previewRecognition"
         case .shortcuts: return "settings.shortcuts"
-        case .relay: return "relay.tab"
         case .privacy: return "settings.privacy"
         case .aiAgents: return "settings.tab.aiAgents"
+        case .aiService: return "settings.aiService"
         case .automation: return "settings.automation"
         case .templates: return "settings.templates"
         case .statistics: return "stats.storage.title"
@@ -107,9 +145,9 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .quickPanel: return "list.bullet.rectangle"
         case .preview: return "text.viewfinder"
         case .shortcuts: return "keyboard"
-        case .relay: return "arrow.forward"
         case .privacy: return "lock.shield"
         case .aiAgents: return "sparkles.rectangle.stack"
+        case .aiService: return "brain"
         case .automation: return "gearshape.2"
         case .templates: return "text.badge.plus"
         case .statistics: return "chart.bar.xaxis"
@@ -120,10 +158,32 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+extension SettingsCategory {
+    /// 侧边栏图标块底色。
+    var tileColor: Color {
+        switch self {
+        case .general: return .gray
+        case .appearance: return .pink
+        case .shortcuts: return .indigo
+        case .quickPanel: return .blue
+        case .preview: return .teal
+        case .aiAgents: return .orange
+        case .aiService: return .mint
+        case .automation: return .purple
+        case .templates: return .cyan
+        case .statistics: return .indigo
+        case .privacy: return .blue
+        case .data: return .green
+        case .sponsor: return .red
+        case .about: return .gray
+        }
+    }
+}
+
 // MARK: - SMS Code Section
 
 /// 短信验证码：开关(默认关) + 完全磁盘访问权限引导。嵌在「预览与识别」页。
-struct SMSCodeSettingsSection: View {
+struct SMSCodeSection: View {
     @AppStorage(SMSCodeWatcher.enabledKey) private var smsCodeEnabled = false
     @ObservedObject private var smsWatcher = SMSCodeWatcher.shared
 
@@ -442,8 +502,8 @@ struct AppearancePane: View {
 struct DataTab: View {
     var body: some View {
         Form {
-            HistorySettingsSection()
-            BackupSettingsSection()
+            HistorySection()
+            BackupSection()
             DataPorterSection()
         }
         .formStyle(.grouped)
@@ -454,6 +514,7 @@ struct DataTab: View {
 
 struct ShortcutsTab: View {
     @ObservedObject private var hotkeyManager = HotkeyManager.shared
+    private var relayManager: RelayManager { RelayManager.shared }
     @AppStorage("hotkeyKeyCode") private var hotkeyKeyCode = 0x09
     @AppStorage("hotkeyModifiers") private var hotkeyModifiers = cmdKey | shiftKey
     @AppStorage("managerHotkeyKeyCode") private var managerKeyCode = -1
@@ -461,12 +522,16 @@ struct ShortcutsTab: View {
     @AppStorage("managerHotkeyGlobalEnabled") private var managerHotkeyGlobalEnabled = true
     @AppStorage("relayHotkeyKeyCode") private var relayKeyCode = -1
     @AppStorage("relayHotkeyModifiers") private var relayModifiers = -1
+    @AppStorage("relayPasteKeyCode") private var relayPasteKeyCode = 0x09
+    @AppStorage("relayPasteModifiers") private var relayPasteModifiers = controlKey
     @AppStorage("doubleTapEnabled") private var doubleTapEnabled = false
     @AppStorage("doubleTapModifier") private var doubleTapModifier = 0
 
     var body: some View {
         Form {
-            Section(L10n.tr("settings.shortcuts")) {
+            // 按「快捷键作用的对象」分组：快捷面板 / 管理器窗口 / 接力。
+            // 每组的提示文字紧跟所属条目，避免所有行挤在一个分区里读不出归属。
+            Section(L10n.tr("settings.shortcuts.section.quickPanel")) {
                 HStack {
                     Text(L10n.tr("settings.quickPanelShortcut"))
                     Spacer()
@@ -476,19 +541,32 @@ struct ShortcutsTab: View {
                             .font(.callout)
                     }
                     ShortcutRecorder(keyCode: $hotkeyKeyCode, modifiers: $hotkeyModifiers, onChanged: applyShortcut)
-                        .frame(width: 140, height: 24)
-                    Button {
+                    ShortcutClearButton {
                         hotkeyManager.clearShortcut()
                         hotkeyKeyCode = -1
                         hotkeyModifiers = -1
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
                 }
 
+                // 双击修饰键走 DoubleTapDetector → toggleQuickPanel，和上面的面板快捷键
+                // 是同一个目标的两种唤起方式，所以放在同一组。
+                Toggle(L10n.tr("settings.doubleTap"), isOn: $doubleTapEnabled)
+                    .onChange(of: doubleTapEnabled) {
+                        DoubleTapDetector.shared.restart()
+                    }
+                if doubleTapEnabled {
+                    Picker(L10n.tr("settings.doubleTap.modifier"), selection: $doubleTapModifier) {
+                        ForEach(DoubleTapModifier.allCases, id: \.rawValue) { mod in
+                            Text(mod.label).tag(mod.rawValue)
+                        }
+                    }
+                    .onChange(of: doubleTapModifier) {
+                        DoubleTapDetector.shared.restart()
+                    }
+                }
+            }
+
+            Section(L10n.tr("settings.shortcuts.section.manager")) {
                 HStack {
                     Text(L10n.tr("settings.managerShortcut"))
                     Spacer()
@@ -511,23 +589,19 @@ struct ShortcutsTab: View {
                             }
                     }
                     ShortcutRecorder(keyCode: $managerKeyCode, modifiers: $managerModifiers, onChanged: applyManagerShortcut)
-                        .frame(width: 140, height: 24)
-                    Button {
+                    ShortcutClearButton {
                         hotkeyManager.clearManagerShortcut()
                         managerKeyCode = -1
                         managerModifiers = -1
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
                 }
 
                 Text(L10n.tr("settings.managerShortcut.scopeHint"))
                     .font(.callout)
                     .foregroundStyle(.tertiary)
+            }
 
+            Section(L10n.tr("settings.shortcuts.section.relay")) {
                 HStack {
                     Text(L10n.tr("settings.relayShortcut"))
                     Spacer()
@@ -537,33 +611,26 @@ struct ShortcutsTab: View {
                             .font(.callout)
                     }
                     ShortcutRecorder(keyCode: $relayKeyCode, modifiers: $relayModifiers, onChanged: applyRelayShortcut)
-                        .frame(width: 140, height: 24)
-                    Button {
+                    ShortcutClearButton {
                         hotkeyManager.clearRelayShortcut()
                         relayKeyCode = -1
                         relayModifiers = -1
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
                 }
 
-                Toggle(L10n.tr("settings.doubleTap"), isOn: $doubleTapEnabled)
-                    .onChange(of: doubleTapEnabled) {
-                        DoubleTapDetector.shared.restart()
-                    }
-                if doubleTapEnabled {
-                    Picker(L10n.tr("settings.doubleTap.modifier"), selection: $doubleTapModifier) {
-                        ForEach(DoubleTapModifier.allCases, id: \.rawValue) { mod in
-                            Text(mod.label).tag(mod.rawValue)
-                        }
-                    }
-                    .onChange(of: doubleTapModifier) {
-                        DoubleTapDetector.shared.restart()
-                    }
+                // 接力粘贴快捷键（接力浮窗内逐条粘贴用，默认 ⌃V）。RelayHotkeyHandler 在
+                // 每次 start() 时重读 UserDefaults，所以接力运行中不允许改，暂停/退出后生效。
+                HStack {
+                    Text(L10n.tr("relay.settings.pasteKey"))
+                    Spacer()
+                    ShortcutRecorder(keyCode: $relayPasteKeyCode, modifiers: $relayPasteModifiers)
+                        .disabled(relayManager.isActive && !relayManager.isPaused)
                 }
+                Text(relayManager.isActive && !relayManager.isPaused
+                    ? L10n.tr("relay.settings.pauseToChange")
+                    : L10n.tr("relay.settings.pasteKeyNote"))
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
             }
         }
         .formStyle(.grouped)
@@ -591,7 +658,16 @@ struct QuickPanelPane: View {
     @AppStorage(QuickPanelSettings.secondaryRowKey) private var quickPanelSecondaryRow = QuickPanelSecondaryRow.types.rawValue
     @AppStorage(QuickPanelSettings.rememberLastFilterKey) private var quickPanelRememberLastFilter = false
     @AppStorage(QuickPanelSettings.imageLayoutKey) private var quickPanelImageLayout = QuickPanelImageLayout.list.rawValue
+    @AppStorage(QuickPanelSettings.hiddenTabTypesKey) private var quickPanelHiddenTabTypes = ""
+    @AppStorage(QuickPanelSettings.tabOrderKey) private var quickPanelTabOrder = ""
+    /// 拖拽期间的临时顺序。直接绑 @AppStorage 会让每次 dropEntered 都写一遍
+    /// UserDefaults，拖一趟下来几十次写盘。
+    @State private var tabOrder: [QuickPanelTabItem] = QuickPanelSettings.resolvedTabItems(
+        from: UserDefaults.standard.string(forKey: QuickPanelSettings.tabOrderKey) ?? ""
+    )
+    @State private var draggingTab: QuickPanelTabItem?
     @AppStorage(QuickPanelSettings.imageGridDensityKey) private var quickPanelImageGridDensity = QuickPanelImageGridDensity.medium.rawValue
+    @AppStorage(QuickPanelSettings.previewFontSizeKey) private var quickPanelPreviewFontSize = QuickPanelPreviewFontSize.defaultPoints
     @AppStorage(QuickPanelPositionSettings.modeKey) private var quickPanelPositionMode = QuickPanelPositionMode.screenCenter.rawValue
     @AppStorage(QuickPanelPositionSettings.screenTargetKey) private var quickPanelScreenTarget = QuickPanelScreenTarget.active.rawValue
     @AppStorage(QuickPanelPositionSettings.specifiedScreenIDKey) private var quickPanelSpecifiedScreenID = ""
@@ -602,6 +678,13 @@ struct QuickPanelPane: View {
     }
     private var currentScreenTarget: QuickPanelScreenTarget {
         QuickPanelScreenTarget(rawValue: quickPanelScreenTarget) ?? .active
+    }
+
+    private var previewFontSizeSelection: Binding<Int> {
+        Binding(
+            get: { QuickPanelPreviewFontSize.resolved(quickPanelPreviewFontSize) },
+            set: { quickPanelPreviewFontSize = $0 }
+        )
     }
 
     var body: some View {
@@ -622,6 +705,11 @@ struct QuickPanelPane: View {
                         ForEach(QuickPanelImageGridDensity.allCases, id: \.rawValue) { option in
                             Text(L10n.tr(option.titleKey)).tag(option.rawValue)
                         }
+                    }
+                }
+                Picker(L10n.tr("settings.previewFontSize"), selection: previewFontSizeSelection) {
+                    ForEach(QuickPanelPreviewFontSize.options, id: \.self) { size in
+                        Text(L10n.tr("settings.previewFontSize.points", size)).tag(size)
                     }
                 }
                 HStack {
@@ -682,6 +770,33 @@ struct QuickPanelPane: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
+
+            }
+
+            // 独立 Section 而不是 DisclosureGroup：后者把十几个 Toggle 挤成一坨、
+            // 行高和缩进都跟其它设置项对不齐。Section 的 header/footer 是 Form 的
+            // 标准结构，跟这一页其它分节自然一致。
+            Section {
+                // 置顶固定第一位、不参与排序：它是「哪些条目」而不是「哪一类内容」，
+                // 和下面按内容类型分的标签不是一回事。只留开关，允许整项关掉。
+                pinnedTabRow
+                ForEach(tabOrder) { item in
+                    tabItemRow(item)
+                }
+            } header: {
+                HStack {
+                    Text(L10n.tr("settings.quickPanelTabTypes"))
+                    Spacer()
+                    if tabOrder.map(\.storageID) != QuickPanelSettings.defaultTabOrderIDs {
+                        Button(L10n.tr("settings.quickPanelTabTypes.reset")) {
+                            tabOrder = QuickPanelSettings.resolvedTabItems(from: "")
+                        }
+                        .buttonStyle(.link)
+                        .font(.system(size: 11))
+                    }
+                }
+            } footer: {
+                Text(L10n.tr("settings.quickPanelTabTypes.hint"))
             }
 
             Section(L10n.tr("settings.behavior")) {
@@ -694,6 +809,13 @@ struct QuickPanelPane: View {
         .formStyle(.grouped)
         .onAppear {
             ensureSpecifiedScreenSelection()
+            tabOrder = QuickPanelSettings.resolvedTabItems(from: quickPanelTabOrder)
+        }
+        // 落盘挂在顺序变化上，不挂 performDrop：松手位置只要没落在某一行上
+        // （行间缝隙、Section 边距），那个回调就不触发，顺序会只改了内存没进 defaults。
+        .onChange(of: tabOrder) { _, newValue in
+            let encoded = newValue.map(\.storageID).joined(separator: ",")
+            if encoded != quickPanelTabOrder { quickPanelTabOrder = encoded }
         }
         .onChange(of: quickPanelPositionMode) {
             ensureSpecifiedScreenSelection()
@@ -731,6 +853,84 @@ struct QuickPanelPane: View {
         }
     }
 
+    /// 存的是「隐藏集合」而不是「显示集合」：这样新增内容类型时默认可见，
+    /// 老用户的配置不会把它挡在外面（同 typeOrder 里 missing 自动追加的取舍）。
+    /// 不用 `Label`：SF Symbols 宽窄不一（`</>` 比 `pin` 宽一截），Label 不钉图标宽度，
+    /// 一列下来文字左边缘参差。自己给图标一个固定宽度再排文字。
+    private func tabItemLabel(_ item: QuickPanelTabItem) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: item.icon)
+                .frame(width: 18, alignment: .center)
+                .foregroundStyle(.secondary)
+            Text(item.label)
+        }
+    }
+
+    private var pinnedTabRow: some View {
+        HStack(spacing: 10) {
+            // 占住和可拖行同宽的位置，标题才对得齐
+            Color.clear.frame(width: 14, height: 1)
+            tabItemLabel(.pinned)
+            Spacer(minLength: 0)
+            Toggle("", isOn: tabItemVisibleBinding(.pinned))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func tabItemRow(_ item: QuickPanelTabItem) -> some View {
+        HStack(spacing: 10) {
+            // 把手只是提示「这行能拖」，整行都是拖拽源——只让 6pt 宽的图标可拖太难点中
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 14)
+            tabItemLabel(item)
+            Spacer(minLength: 0)
+            Toggle("", isOn: tabItemVisibleBinding(item))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.small)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onDrag {
+            draggingTab = item
+            return NSItemProvider(object: item.storageID as NSString)
+        }
+        .onDrop(of: [.text], delegate: TabItemDropDelegate(
+            target: item,
+            dragging: $draggingTab,
+            items: $tabOrder
+        ))
+        .pointerCursor()
+    }
+
+    /// 存的是「隐藏集合」而不是「显示集合」：这样新增分类时默认可见，
+    /// 老用户的配置不会把它挡在外面（同 typeOrder 里 missing 自动追加的取舍）。
+    private func tabItemVisibleBinding(_ item: QuickPanelTabItem) -> Binding<Bool> {
+        Binding(
+            get: {
+                !QuickPanelSettings.hiddenTabIDs(from: quickPanelHiddenTabTypes).contains(item.storageID)
+            },
+            set: { visible in
+                var hidden = QuickPanelSettings.hiddenTabIDs(from: quickPanelHiddenTabTypes)
+                if visible {
+                    hidden.remove(item.storageID)
+                } else {
+                    hidden.insert(item.storageID)
+                }
+                // 按默认顺序落盘，便于人肉核对 defaults
+                quickPanelHiddenTabTypes = QuickPanelSettings.defaultTabOrderIDs
+                    .filter { hidden.contains($0) }
+                    .joined(separator: ",")
+            }
+        )
+    }
+
     @ViewBuilder
     private func positionMenuItem(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -755,6 +955,35 @@ struct QuickPanelPane: View {
                 quickPanelSpecifiedScreenID = screenID ?? screenOptions.first?.id ?? ""
             }
         }
+    }
+}
+
+/// 拖拽重排：只动内存里的顺序，落盘交给外层对 `items` 的 onChange——
+/// 松手不一定落在某一行上，`performDrop` 未必会触发。
+private struct TabItemDropDelegate: DropDelegate {
+    let target: QuickPanelTabItem
+    @Binding var dragging: QuickPanelTabItem?
+    @Binding var items: [QuickPanelTabItem]
+
+    func dropEntered(info: DropInfo) {
+        guard let source = dragging, source != target,
+              let from = items.firstIndex(of: source),
+              let to = items.firstIndex(of: target)
+        else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            items.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func validateDrop(info: DropInfo) -> Bool { dragging != nil }
+
+    func performDrop(info: DropInfo) -> Bool {
+        dragging = nil
+        return true
     }
 }
 
@@ -787,15 +1016,15 @@ struct PreviewPane: View {
             }
             .disabled(offlineModeEnabled)
 
-            OCRSettingsSection()
+            OCRSection()
 
-            SMSCodeSettingsSection()
+            SMSCodeSection()
         }
         .formStyle(.grouped)
     }
 }
 
-struct HistorySettingsSection: View {
+struct HistorySection: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("retentionDays") private var retentionDays = 90
     @State private var pendingRetentionOldDays = 0
@@ -875,7 +1104,7 @@ struct HistorySettingsSection: View {
     }
 }
 
-struct OCRSettingsSection: View {
+struct OCRSection: View {
     @AppStorage(OCRTaskCoordinator.enableOCRKey) private var ocrEnabled = false
     @AppStorage(OCRTaskCoordinator.autoOCRKey) private var autoProcess = true
     @AppStorage(OCRTaskCoordinator.markdownKey) private var ocrMarkdown = true
@@ -930,64 +1159,6 @@ struct OCRSettingsSection: View {
                     .foregroundStyle(.tertiary)
             }
         }
-    }
-}
-
-// MARK: - Relay Tab
-
-struct RelayTab: View {
-    @AppStorage("relayPasteKeyCode") private var relayPasteKeyCode = 0x09
-    @AppStorage("relayPasteModifiers") private var relayPasteModifiers = controlKey
-    @AppStorage("relayAlertDismissed") private var relayAlertDismissed = false
-
-    private var pasteShortcut: String {
-        shortcutDisplayString(keyCode: relayPasteKeyCode, modifiers: relayPasteModifiers)
-    }
-
-    var body: some View {
-        Form {
-            Section {
-                Text(L10n.tr("relay.settings.description"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Section(L10n.tr("relay.settings.shortcuts")) {
-                HStack {
-                    Text(L10n.tr("relay.settings.pasteKey"))
-                    Spacer()
-                    ShortcutRecorder(keyCode: $relayPasteKeyCode, modifiers: $relayPasteModifiers)
-                        .frame(width: 140, height: 24)
-                        .disabled(RelayManager.shared.isActive && !RelayManager.shared.isPaused)
-                }
-                Text(RelayManager.shared.isActive && !RelayManager.shared.isPaused
-                    ? L10n.tr("relay.settings.pauseToChange")
-                    : L10n.tr("relay.settings.pasteKeyNote"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section(L10n.tr("relay.settings.operations")) {
-                HStack {
-                    Text(L10n.tr("relay.settings.op.paste"))
-                    Spacer()
-                    Text(pasteShortcut)
-                        .foregroundStyle(.secondary)
-                        .font(.system(.body, design: .monospaced))
-                }
-            }
-
-            Section {
-                if relayAlertDismissed {
-                    Button(L10n.tr("relay.settings.resetAlert")) {
-                        relayAlertDismissed = false
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .scrollDisabled(true)
     }
 }
 

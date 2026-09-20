@@ -169,6 +169,7 @@ enum AppMenuActions {
             let newName = result.name
             let duplicate = FetchDescriptor<SmartGroup>(predicate: #Predicate { $0.name == newName })
             guard (try? context.fetch(duplicate).first) == nil else { return }
+            // 条目是按 groupName 字符串挂在分组上的，改名后若为普通分组则将原有条目迁移至新分组名下
             if !group.isSmart {
                 let assigned = FetchDescriptor<ClipItem>(predicate: #Predicate { $0.groupName == oldName })
                 for item in (try? context.fetch(assigned)) ?? [] {
@@ -183,8 +184,7 @@ enum AppMenuActions {
         group.layoutRaw = result.layoutRaw
         group.isQuickAccess = result.isQuickAccess
         applySmartFilter(result.smartFilter, to: group)
-        try? context.save()
-        NotificationCenter.default.post(name: ClipItemStore.itemDidUpdateNotification, object: nil)
+        ClipItemStore.saveAndNotify(context)
     }
 
     static func deleteGroup(name: String, context: ModelContext) {
