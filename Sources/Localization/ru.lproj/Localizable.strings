@@ -416,6 +416,7 @@
 "action.edit" = "Редактировать";
 "action.save" = "Сохранить";
 "action.markdownToPlain" = "Markdown в простой текст";
+"action.markdownToRichText" = "Markdown в форматированный текст";
 "action.removeEmptyLines" = "Удалить пустые строки";
 
 /* Multi-select */

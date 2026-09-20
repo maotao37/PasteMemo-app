@@ -324,6 +324,7 @@
 "action.edit" = "Editar";
 "action.save" = "Guardar";
 "action.markdownToPlain" = "Markdown a texto sin formato";
+"action.markdownToRichText" = "Markdown a texto enriquecido";
 "action.removeEmptyLines" = "Eliminar líneas vacías";
 
 /* Multi-select */

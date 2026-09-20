@@ -211,6 +211,18 @@ struct QuickPreviewPane: View {
                 .help(L10n.tr("action.save"))
             } else {
                 Button {
+                    applyMarkdownRichText()
+                } label: {
+                    Image(systemName: "doc.richtext")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+                .help(L10n.tr("action.markdownToRichText"))
+
+                Button {
                     applyTextTransform(MarkdownTextConverter.toPlainText, clearsMarkdownLabel: true)
                 } label: {
                     Image(systemName: "doc.plaintext")
@@ -315,6 +327,37 @@ struct QuickPreviewPane: View {
             if item.contentType == .code { item.contentType = .text }
         }
         item.resetStaleSnapshots()
+        item.displayTitle = ClipItem.buildTitle(
+            content: item.content,
+            contentType: item.contentType,
+            imageData: item.imageData,
+            filePaths: item.filePaths
+        )
+        item.isSensitive = SensitiveDetector.isSensitive(
+            content: item.content,
+            sourceAppBundleID: nil,
+            contentType: item.contentType
+        )
+        RichTextCache.shared.invalidate(itemID: item.itemID)
+        ClipItemStore.saveAndNotifyContent(modelContext)
+    }
+
+    /// Markdown → 富文本：`content` 存去标记纯文本（纯文本目标 / 纯文本粘贴用），
+    /// `richTextData` 存带样式 RTF（富文本目标粘贴时保留标题、粗体等排版）。
+    /// 先 reset 再写入新富文本，避免旧快照回放出转换前的内容。
+    private func applyMarkdownRichText() {
+        guard let layers = MarkdownTextConverter.toRichTextLayers(item.content),
+              layers.plainText != item.content
+        else { return }
+
+        item.content = layers.plainText
+        if item.codeLanguage == CodeLanguage.markdown.rawValue {
+            item.codeLanguage = nil
+            if item.contentType == .code { item.contentType = .text }
+        }
+        item.resetStaleSnapshots()
+        item.richTextData = layers.rtfData
+        item.richTextType = "rtf"
         item.displayTitle = ClipItem.buildTitle(
             content: item.content,
             contentType: item.contentType,

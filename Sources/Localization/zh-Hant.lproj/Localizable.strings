@@ -416,6 +416,7 @@
 "action.edit" = "編輯";
 "action.save" = "儲存";
 "action.markdownToPlain" = "Markdown 轉純文字";
+"action.markdownToRichText" = "Markdown 轉富文本";
 "action.removeEmptyLines" = "刪除空行";
 
 /* Multi-select */

@@ -324,6 +324,7 @@
 "action.edit" = "편집";
 "action.save" = "저장";
 "action.markdownToPlain" = "Markdown을 일반 텍스트로 변환";
+"action.markdownToRichText" = "Markdown을 서식 있는 텍스트로 변환";
 "action.removeEmptyLines" = "빈 줄 삭제";
 
 /* Multi-select */

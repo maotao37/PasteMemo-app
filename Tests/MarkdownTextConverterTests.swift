@@ -5,10 +5,12 @@
 //  作者：mao.tao
 //
 
+import AppKit
 import Testing
 @testable import PasteMemo
 
 @Suite("MarkdownTextConverter 转换器测试")
+@MainActor
 struct MarkdownTextConverterTests {
 
     // MARK: - Markdown 转纯文本
@@ -164,4 +166,106 @@ struct MarkdownTextConverterTests {
     func noEmptyLinesUnchanged() {
         #expect(MarkdownTextConverter.removeEmptyLines("a\nb\nc") == "a\nb\nc")
     }
+
+    // MARK: - Markdown 转富文本双层
+
+    @Test("富文本层：纯文本层剥离标记，RTF 层为合法 RTF 数据")
+    func richTextLayers() {
+        let input = "# Title\n\n**bold** and `code`\n\n- item one\n- item two"
+        guard let layers = MarkdownTextConverter.toRichTextLayers(input) else {
+            Issue.record("markdown 输入应成功产出双层结果")
+            return
+        }
+        #expect(layers.plainText == "Title\n\nbold and code\n\n- item one\n- item two")
+        let magic = String(decoding: layers.rtfData.prefix(6), as: UTF8.self)
+        #expect(magic == #"{\rtf1"#, "RTF 数据必须以 RTF 魔数头开始")
+    }
+
+    @Test("富文本层携带样式（标题更大、粗体加粗）")
+    func richTextLayersStyled() {
+        let input = "# Heading\n\n**bold text**"
+        guard let layers = MarkdownTextConverter.toRichTextLayers(input) else {
+            Issue.record("toRichTextLayers 应成功")
+            return
+        }
+        guard let attr = try? NSAttributedString(
+            data: layers.rtfData,
+            options: [.documentType: NSAttributedString.DocumentType.rtf],
+            documentAttributes: nil
+        ) else {
+            Issue.record("生成的 RTF 应能被 NSAttributedString 解析")
+            return
+        }
+        let range = NSRange(location: 0, length: attr.length)
+        var hasBold = false
+        var hasNonDefaultSize = false
+        attr.enumerateAttribute(.font, in: range) { value, _, _ in
+            if let font = value as? NSFont {
+                if font.fontDescriptor.symbolicTraits.contains(.bold) { hasBold = true }
+                if font.pointSize != NSFont.systemFontSize { hasNonDefaultSize = true }
+            }
+        }
+        #expect(hasBold, "粗体片段应携带粗体字体")
+        #expect(hasNonDefaultSize, "标题应携带大于默认值的字号")
+    }
+
+    @Test("纯文本输入的纯文本层保持原样")
+    func richTextLayersPlainInput() {
+        let input = "普通文本没有语法\nsecond line"
+        guard let layers = MarkdownTextConverter.toRichTextLayers(input) else {
+            Issue.record("纯文本也应产出双层结果")
+            return
+        }
+        #expect(layers.plainText == input)
+    }
+
+    @Test("空输入返回 nil")
+    func richTextLayersEmpty() {
+        #expect(MarkdownTextConverter.toRichTextLayers("") == nil)
+    }
+
+    @Test("HTML 层结构：标题、列表、代码块、链接映射为对应标签")
+    func htmlStructure() {
+        let input = "## 解决方案\n\n1. 安装依赖\n2. 运行脚本\n\n```bash\nnpm install\n```\n\n参考[文档](https://example.com)获取详情。"
+        let html = MarkdownTextConverter.toHTML(input)
+        #expect(html.contains("<h2>解决方案</h2>"))
+        #expect(html.contains("<ol><li>安装依赖</li><li>运行脚本</li></ol>"))
+        #expect(html.contains("<pre><code>npm install</code></pre>"))
+        #expect(html.contains(#"<a href="https://example.com">文档</a>"#))
+        #expect(html.hasPrefix("<html>"))
+        #expect(html.hasSuffix("</body></html>"))
+    }
+
+    @Test("HTML 层转义：正文中的尖括号与取值符号被正确转义")
+    func htmlEscaping() {
+        let html = MarkdownTextConverter.toHTML("a < b && c > d \"quotes\"")
+        #expect(html.contains("a &lt; b &amp;&amp; c &gt; d &quot;quotes&quot;"))
+    }
+
+    @Test("行内代码特殊字符不发生二次转义")
+    func inlineCodeEscaping() {
+        let input = "比较 `x < y && a > b` 结果"
+        let html = MarkdownTextConverter.toHTML(input)
+        #expect(html.contains("<code>x &lt; y &amp;&amp; a &gt; b</code>"))
+        #expect(!html.contains("&amp;lt;"), "行内代码中不应出现二次转义的实体")
+
+        guard let layers = MarkdownTextConverter.toRichTextLayers(input),
+              let attr = try? NSAttributedString(
+                data: layers.rtfData,
+                options: [.documentType: NSAttributedString.DocumentType.rtf],
+                documentAttributes: nil
+              ) else {
+            Issue.record("应成功解析为富文本")
+            return
+        }
+        #expect(attr.string.contains("x < y && a > b"), "富文本解析后应还原原始代码字符")
+    }
+
+    @Test("未闭合代码块兜底保留内容")
+    func unclosedCodeFence() {
+        let input = "```swift\nlet a = 1\nlet b = 2"
+        let html = MarkdownTextConverter.toHTML(input)
+        #expect(html.contains("<pre><code>let a = 1\nlet b = 2</code></pre>"), "未闭合代码块内容不应丢失")
+    }
 }
+

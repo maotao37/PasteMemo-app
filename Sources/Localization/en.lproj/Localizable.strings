@@ -465,6 +465,7 @@
 "action.edit" = "Edit";
 "action.save" = "Save";
 "action.markdownToPlain" = "Markdown to Plain Text";
+"action.markdownToRichText" = "Markdown to Rich Text";
 "action.removeEmptyLines" = "Remove Empty Lines";
 
 /* Multi-select */

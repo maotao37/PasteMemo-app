@@ -416,6 +416,7 @@
 "action.edit" = "Edit";
 "action.save" = "Simpan";
 "action.markdownToPlain" = "Markdown ke teks biasa";
+"action.markdownToRichText" = "Markdown ke teks berformat";
 "action.removeEmptyLines" = "Hapus baris kosong";
 
 /* Multi-select */

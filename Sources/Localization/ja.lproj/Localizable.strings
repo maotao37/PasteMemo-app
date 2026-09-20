@@ -341,6 +341,7 @@
 "action.edit" = "編集";
 "action.save" = "保存";
 "action.markdownToPlain" = "Markdownをプレーンテキストに変換";
+"action.markdownToRichText" = "Markdownをリッチテキストに変換";
 "action.removeEmptyLines" = "空行を削除";
 
 /* Multi-select */

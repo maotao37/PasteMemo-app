@@ -324,6 +324,7 @@
 "action.edit" = "Bearbeiten";
 "action.save" = "Speichern";
 "action.markdownToPlain" = "Markdown in Text umwandeln";
+"action.markdownToRichText" = "Markdown in formatierten Text";
 "action.removeEmptyLines" = "Leerzeilen entfernen";
 
 /* Multi-select */
