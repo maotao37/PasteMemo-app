@@ -2454,18 +2454,6 @@ struct QuickPanelView: View {
                     dismissAndRevealInFinder(path)
                 }
             }
-        case .transform(let ruleAction):
-            if let item = currentItem {
-                // 使用规则执行引擎转换内容并更新显示标题与快照
-                let processed = AutomationEngine.shared.applyAction(ruleAction, to: item.content)
-                let contentChanged = processed != item.content
-                item.content = processed
-                item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-                if contentChanged || ruleAction == .stripRichText {
-                    item.resetStaleSnapshots()
-                }
-                ClipItemStore.saveAndNotify(modelContext)
-            }
         case .delete:
             handleDeleteSelected()
         case .runRule(let ruleID, _):
@@ -2849,18 +2837,6 @@ struct QuickPanelView: View {
         }
         try? modelContext.save()
         assignToGroup(items: items, name: result.name)
-    }
-
-    private func applyTransform(_ action: RuleAction, to item: ClipItem) {
-        let processed = AutomationEngine.shared.applyAction(action, to: item.content)
-        let contentChanged = processed != item.content
-        item.content = processed
-        item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-        // 内容变更或显式清除富文本时，重置旧快照与富文本
-        if contentChanged || action == .stripRichText {
-            item.resetStaleSnapshots()
-        }
-        ClipItemStore.saveAndNotify(modelContext)
     }
 
     private func fetchEnabledRules() -> [AutomationRule] {

@@ -1090,15 +1090,6 @@ struct MainWindowView: View {
             if let first = paths.first {
                 NSWorkspace.shared.selectFile(first, inFileViewerRootedAtPath: "")
             }
-        case .transform(let ruleAction):
-            let processed = AutomationEngine.shared.applyAction(ruleAction, to: item.content)
-            let contentChanged = processed != item.content
-            item.content = processed
-            item.displayTitle = ClipItem.buildTitle(content: processed, contentType: item.contentType)
-            if contentChanged || ruleAction == .stripRichText {
-                item.resetStaleSnapshots()
-            }
-            ClipItemStore.saveAndNotify(modelContext)
         case .delete:
             deleteSelectedItems()
         case .runRule(let ruleID, _):

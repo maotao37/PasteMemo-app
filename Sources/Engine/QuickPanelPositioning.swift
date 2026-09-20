@@ -80,6 +80,16 @@ enum QuickPanelSettings {
         Set(raw.split(separator: ",").map(String.init).filter { !$0.isEmpty })
     }
 
+    /// 把隐藏集合序列化落盘。按固定顺序过滤，便于人肉核对 defaults。
+    ///
+    /// 不能拿 `defaultTabOrderIDs` 当过滤名单——它不含「置顶」，置顶的隐藏标记会被
+    /// 悄悄丢掉，开关落盘即失效。置顶固定第一位，和标签栏里的位置一致。
+    static func serializeHiddenTabIDs(_ hidden: Set<String>) -> String {
+        ([pinnedTabID] + defaultTabOrderIDs)
+            .filter { hidden.contains($0) }
+            .joined(separator: ",")
+    }
+
     /// 可排序项的默认顺序：全部，然后跟着主窗口侧边栏的类型顺序走。
     ///
     /// 不含「置顶」——它固定在标签栏第一位，不参与排序（但仍可整个关掉）。

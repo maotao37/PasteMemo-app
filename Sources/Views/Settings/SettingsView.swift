@@ -923,10 +923,8 @@ struct QuickPanelPane: View {
                 } else {
                     hidden.insert(item.storageID)
                 }
-                // 按默认顺序落盘，便于人肉核对 defaults
-                quickPanelHiddenTabTypes = QuickPanelSettings.defaultTabOrderIDs
-                    .filter { hidden.contains($0) }
-                    .joined(separator: ",")
+                // 按固定顺序落盘（含不参与排序的「置顶」），便于人肉核对 defaults
+                quickPanelHiddenTabTypes = QuickPanelSettings.serializeHiddenTabIDs(hidden)
             }
         )
     }

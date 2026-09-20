@@ -46,6 +46,17 @@ struct QuickPanelTabOrderTests {
         #expect(QuickPanelSettings.hiddenTabIDs(from: "").isEmpty)
     }
 
+    @Test("隐藏集合序列化不会丢掉置顶")
+    func hiddenSerializationKeepsPinned() {
+        // 只隐藏置顶时必须原样落盘：序列化若用 defaultTabOrderIDs 过滤，
+        // 「置顶」不在名单里会被滤成空串，开关一落盘就弹回去
+        #expect(QuickPanelSettings.serializeHiddenTabIDs(["pinned"]) == "pinned")
+        #expect(QuickPanelSettings.serializeHiddenTabIDs(["pinned", "image"]) == "pinned,image")
+        #expect(QuickPanelSettings.serializeHiddenTabIDs([]).isEmpty)
+        // 未知 id 不落盘
+        #expect(QuickPanelSettings.serializeHiddenTabIDs(["not-a-type"]).isEmpty)
+    }
+
     @Test("短信是独立筛选项，参与排序和显隐")
     func smsIsASortableTab() {
         #expect(QuickPanelTabItem.parse("sms") == .sms)
