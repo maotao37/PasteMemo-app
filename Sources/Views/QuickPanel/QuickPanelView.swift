@@ -2947,9 +2947,8 @@ struct QuickPanelView: View {
 
         // Genuine file-backed clip (Finder copy) → copy the user's original file directly,
         // preserving its exact bytes / format / metadata and its filename.
-        // Raw pasteboard image (incl. our cached screenshots, content == "[Image]") → write
-        // the verbatim original bytes via `imageBytesForExport()` under a clean PasteMemo_<ts>
-        // name (copying our internal cache file would give it an ugly UUID filename).
+        // 剪贴板原始图片（包含截图，content == "[Image]"）直接通过 `imageBytesForExport()`
+        // 写入原始字节，使用规范的 temp_<ts> 临时文件名（避免复制内部缓存时使用难看的 UUID 文件名）。
         let savedURL: URL?
         if item.content != "[Image]", let sourceURL = item.sourceImageFileURL {
             savedURL = clipboardManager.copyImageFileToFolder(sourceURL: sourceURL, folder: folder)

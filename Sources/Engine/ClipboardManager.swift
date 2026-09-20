@@ -1424,8 +1424,8 @@ final class ClipboardManager: ObservableObject {
     }
 
     private func writePasteFile(_ data: Data, fileExtension: String, directory: URL) -> URL? {
-        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
-        let proposedURL = directory.appendingPathComponent("PasteMemo_\(timestamp).\(fileExtension)")
+        let filename = Self.generateTempFileName(fileExtension: fileExtension)
+        let proposedURL = directory.appendingPathComponent(filename)
         let url = Self.uniqueDestination(proposedURL)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -1816,8 +1816,7 @@ final class ClipboardManager: ObservableObject {
             filename = preferred
         } else {
             let ext = Self.sniffImageExtension(from: imageData)
-            let timestamp = Int(Date().timeIntervalSince1970 * 1000)
-            filename = "PasteMemo_\(timestamp).\(ext)"
+            filename = Self.generateTempFileName(fileExtension: ext)
         }
 
         let fileURL = Self.uniqueDestination(folder.appendingPathComponent(filename))
@@ -1883,10 +1882,8 @@ final class ClipboardManager: ObservableObject {
         if let source = CGImageSourceCreateWithData(data as CFData, nil),
            let uti = CGImageSourceGetType(source) as String?,
            let ext = UTType(uti)?.preferredFilenameExtension {
-            // UTType returns "jpeg" for JPEG bytes; users see "jpg" everywhere
-            // else (Finder, screenshots, downloads). Normalise so we don't
-            // start producing PasteMemo_<ts>.jpeg files where PasteMemo_<ts>.jpg
-            // used to land.
+            // UTType 将 JPEG 数据的扩展名返回为 "jpeg"，而用户通常习惯在各处（访达、截图、下载）看到 "jpg"。
+            // 这里规范化为 "jpg"，避免生成 temp_<ts>.jpeg 文件。
             return ext == "jpeg" ? "jpg" : ext
         }
 
@@ -1913,6 +1910,29 @@ final class ClipboardManager: ObservableObject {
         return "png"
     }
 
+    /// 生成临时文件名：temp_yyyymmddhh24miss_毫秒3位.{ext}
+    /// 示例：temp_20260920151615_123.txt
+    nonisolated static func generateTempFileName(fileExtension: String, date: Date = Date()) -> String {
+        let timeInterval = date.timeIntervalSince1970
+        var timeVal = time_t(timeInterval)
+        var timeInfo = tm()
+        localtime_r(&timeVal, &timeInfo)
+
+        var buffer = [CChar](repeating: 0, count: 32)
+        strftime(&buffer, buffer.count, "%Y%m%d%H%M%S", &timeInfo)
+        let dateString = String(cString: buffer)
+
+        let totalMs = Int64(timeInterval * 1000.0)
+        let ms = Int(abs(totalMs) % 1000)
+        let msString = String(format: "%03d", ms)
+
+        let cleanExt = fileExtension.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+        if cleanExt.isEmpty {
+            return "temp_\(dateString)_\(msString)"
+        }
+        return "temp_\(dateString)_\(msString).\(cleanExt)"
+    }
+
     /// Return a destination URL that doesn't collide with an existing file —
     /// `foo.jpg` → `foo 1.jpg` / `foo 2.jpg` etc.
     nonisolated private static func uniqueDestination(_ url: URL) -> URL {
@@ -1929,9 +1949,9 @@ final class ClipboardManager: ObservableObject {
     }
 
     func saveTextToFolder(_ text: String, folder: URL, fileExtension: String = "txt") -> URL? {
-        let timestamp = Int(Date().timeIntervalSince1970 * 1000)
-        let filename = "PasteMemo_\(timestamp).\(fileExtension)"
-        let fileURL = folder.appendingPathComponent(filename)
+        let filename = Self.generateTempFileName(fileExtension: fileExtension)
+        let proposedURL = folder.appendingPathComponent(filename)
+        let fileURL = Self.uniqueDestination(proposedURL)
 
         do {
             try text.write(to: fileURL, atomically: true, encoding: .utf8)

@@ -47,4 +47,19 @@ struct PasteAsFileTests {
 
         #expect(urls == [source])
     }
+
+    @Test("临时文件名满足 temp_yyyymmddhh24miss_毫秒3位.ext 格式")
+    func tempFilenameFormat() throws {
+        // 传入已知时间戳测试格式
+        let testDate = Date(timeIntervalSince1970: 1726837875.123)
+        let filename = ClipboardManager.generateTempFileName(fileExtension: "txt", date: testDate)
+
+        #expect(filename.hasPrefix("temp_"))
+        #expect(filename.hasSuffix(".txt"))
+
+        // 匹配 temp_ 年月日时分秒(14位数字) _ 毫秒(3位数字) . 扩展名
+        let regex = try NSRegularExpression(pattern: #"^temp_\d{14}_\d{3}\.txt$"#)
+        let matches = regex.matches(in: filename, range: NSRange(location: 0, length: filename.utf16.count))
+        #expect(matches.count == 1)
+    }
 }
