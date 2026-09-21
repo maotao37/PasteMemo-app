@@ -1068,3 +1068,23 @@
 "stats.cleanup.none" = "当前无需清理。";
 "stats.cleanup.protected" = "置顶条目和永久收藏板中的内容始终受到保护。";
 "stats.cleanup.action" = "立即清理";
+"stats.runtime.title" = "程式即時資源佔用";
+"stats.runtime.hint" = "僅在此頁面打開時獲取即時資訊";
+"stats.runtime.cpu" = "CPU 佔用";
+"stats.runtime.cpu.hint" = "目前程序使用率";
+"stats.runtime.memory" = "實體記憶體";
+"stats.runtime.memory.hint" = "實體記憶體佔用 (Footprint)";
+"stats.runtime.disk" = "程式磁碟佔用";
+"stats.runtime.diskFree" = "磁碟剩餘可用 %@";
+"stats.runtime.monitoring" = "即時監測中";
+"stats.directory.title" = "儲存目錄明細";
+"stats.directory.reveal" = "在 Finder 中顯示";
+"stats.directory.files" = "%d 個檔案";
+"stats.directory.database" = "資料庫與索引";
+"stats.directory.originals" = "原始圖片";
+"stats.directory.backups" = "本機備份";
+"stats.directory.caches" = "應用程式快取";
+"stats.directory.logs" = "診斷日誌";
+"stats.directory.temporary" = "暫存檔案";
+"stats.directory.other" = "其他資料";
+

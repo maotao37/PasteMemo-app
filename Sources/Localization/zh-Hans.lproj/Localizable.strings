@@ -1056,3 +1056,23 @@
 "stats.cleanup.none" = "当前无需清理。";
 "stats.cleanup.protected" = "置顶条目和永久收藏板中的内容始终受到保护。";
 "stats.cleanup.action" = "立即清理";
+"stats.runtime.title" = "程序实时资源占用";
+"stats.runtime.hint" = "仅在此页面打开时获取实时信息";
+"stats.runtime.cpu" = "CPU 占用";
+"stats.runtime.cpu.hint" = "当前进程使用率";
+"stats.runtime.memory" = "物理内存";
+"stats.runtime.memory.hint" = "物理内存驻留 (Footprint)";
+"stats.runtime.disk" = "程序磁盘占用";
+"stats.runtime.diskFree" = "磁盘剩余可用 %@";
+"stats.runtime.monitoring" = "实时监测中";
+"stats.directory.title" = "存储目录明细";
+"stats.directory.reveal" = "在访达中显示";
+"stats.directory.files" = "%d 个文件";
+"stats.directory.database" = "数据库与索引";
+"stats.directory.originals" = "原始图片";
+"stats.directory.backups" = "本地备份";
+"stats.directory.caches" = "应用缓存";
+"stats.directory.logs" = "诊断日志";
+"stats.directory.temporary" = "临时文件";
+"stats.directory.other" = "其他数据";
+
