@@ -34,7 +34,7 @@ struct NativeTextView: NSViewRepresentable {
 
     /// 可渲染性检查扫描的可见字符上限。足够判定整段是不是坏数据，又不会在
     /// 几十万字的长文档上白跑一遍。
-    static let renderabilityScanLimit = 4_000
+    nonisolated(unsafe) static let renderabilityScanLimit = 4_000
 
     /// Measured plain-text render heights keyed by (text, width, fontSize).
     /// Tiny bounded cache — OCR cards re-evaluate body often but only ever show

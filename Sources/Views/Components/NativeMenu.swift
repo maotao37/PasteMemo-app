@@ -179,6 +179,7 @@ struct NativePullDownButton: NSViewRepresentable {
             }
         }
 
+        @MainActor
         func rebuild(_ button: NSPopUpButton, title: String, symbolName: String?, items: [NativeMenuItem]) {
             let menu = NativeMenuBuilder.build(items)
             // A pull-down shows its first item as the button face.
