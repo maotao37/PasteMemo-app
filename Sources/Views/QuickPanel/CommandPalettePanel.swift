@@ -197,12 +197,14 @@ final class CommandPalettePanel {
         occlusionObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: panel, queue: .main
         ) { [weak self, weak panel] _ in
-            guard let panel, panel.occlusionState.contains(.visible) else { return }
-            if let obs = self?.occlusionObserver {
-                NotificationCenter.default.removeObserver(obs)
-                self?.occlusionObserver = nil
+            MainActor.assumeIsolated {
+                guard let panel, panel.occlusionState.contains(.visible) else { return }
+                if let obs = self?.occlusionObserver {
+                    NotificationCenter.default.removeObserver(obs)
+                    self?.occlusionObserver = nil
+                }
+                self?.present(hosting, in: panel)
             }
-            self?.present(hosting, in: panel)
         }
     }
 

@@ -2363,7 +2363,7 @@ struct QuickPanelView: View {
     /// 模板页签下的按键分发。返回 true 表示已消费（monitor 吞掉事件）；
     /// false 落回共享 switch（Esc 关闭、←→/Tab 切标签、⌘K 命令面板等）。
     private func handleTemplateModeKeyEvent(
-        event: NSEvent,
+        _ event: NSEvent,
         hasCmd: Bool,
         hasShift: Bool,
         hasOption: Bool,
