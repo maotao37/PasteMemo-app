@@ -11,7 +11,7 @@ final class TemplateSnippet {
     var isQuickAccess: Bool = true
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
-    var lastUsedAt: Date = .distantPast
+    var lastUsedAt: Date = Date.distantPast
 
     init(
         name: String,
