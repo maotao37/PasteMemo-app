@@ -128,8 +128,10 @@ final class CommandPalettePanel {
             resignKeyObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.didResignKeyNotification, object: panel, queue: .main
             ) { [weak panel] _ in
-                guard let panel, let parent = panel.parent, NSApp.keyWindow !== parent else { return }
-                QuickPanelWindowController.shared.handleResignKey()
+                MainActor.assumeIsolated {
+                    guard let panel, let parent = panel.parent, NSApp.keyWindow !== parent else { return }
+                    QuickPanelWindowController.shared.handleResignKey()
+                }
             }
         }
     }
@@ -189,8 +191,10 @@ final class CommandPalettePanel {
         }
         if panel.occlusionState.contains(.visible) {
             DispatchQueue.main.async { [weak self, weak panel] in
-                guard let panel else { return }
-                self?.present(hosting, in: panel)
+                MainActor.assumeIsolated {
+                    guard let panel else { return }
+                    self?.present(hosting, in: panel)
+                }
             }
             return
         }
@@ -231,22 +235,24 @@ final class CommandPalettePanel {
             CATransaction.commit()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.glassSettleDelay) { [weak self, weak panel, weak hosting] in
-            // 停留期间被收起了就不动画（hide 已把 contentView 置空）
-            guard let panel, let hosting, panel.contentView === hosting else { return }
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.12
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                panel.animator().alphaValue = 1
-                self?.shadowPanel?.animator().alphaValue = 1
-            }
-            if let layer = hosting.layer {
-                let anim = CABasicAnimation(keyPath: "transform")
-                anim.fromValue = CATransform3DMakeScale(0.96, 0.96, 1)
-                anim.toValue = CATransform3DIdentity
-                anim.duration = 0.12
-                anim.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                layer.add(anim, forKey: "present")
-                layer.transform = CATransform3DIdentity
+            MainActor.assumeIsolated {
+                // 停留期间被收起了就不动画（hide 已把 contentView 置空）
+                guard let panel, let hosting, panel.contentView === hosting else { return }
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.12
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    panel.animator().alphaValue = 1
+                    self?.shadowPanel?.animator().alphaValue = 1
+                }
+                if let layer = hosting.layer {
+                    let anim = CABasicAnimation(keyPath: "transform")
+                    anim.fromValue = CATransform3DMakeScale(0.96, 0.96, 1)
+                    anim.toValue = CATransform3DIdentity
+                    anim.duration = 0.12
+                    anim.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    layer.add(anim, forKey: "present")
+                    layer.transform = CATransform3DIdentity
+                }
             }
         }
     }
