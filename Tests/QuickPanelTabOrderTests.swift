@@ -68,4 +68,16 @@ struct QuickPanelTabOrderTests {
         #expect(resolved.prefix(3) == ["all", "text", "image"])
         #expect(resolved.last == "sms")
     }
+
+    @Test("模板是独立筛选项，默认紧跟「全部」，参与排序和显隐")
+    func templatesIsASortableTab() {
+        #expect(QuickPanelTabItem.parse("templates") == .templates)
+        #expect(QuickPanelSettings.defaultTabOrderIDs[0] == QuickPanelSettings.allTabID)
+        #expect(QuickPanelSettings.defaultTabOrderIDs[1] == QuickPanelSettings.templatesTabID)
+        // 老用户存过的顺序里没有它，补进来时落在末尾，新老用户看到的位置无关但都可见
+        let resolved = QuickPanelSettings.resolvedTabOrderIDs(from: "all,image")
+        #expect(resolved.contains(QuickPanelSettings.templatesTabID))
+        // 隐藏标记落盘不丢
+        #expect(QuickPanelSettings.serializeHiddenTabIDs(["templates"]) == "templates")
+    }
 }

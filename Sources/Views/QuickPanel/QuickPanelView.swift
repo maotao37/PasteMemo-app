@@ -8,6 +8,7 @@ private enum QuickFilter: Equatable, Hashable {
     case pinned
     case aiAgent
     case sms
+    case templates
     case type(ClipContentType)
     case group(String)
 
@@ -18,6 +19,7 @@ private enum QuickFilter: Equatable, Hashable {
         case .pinned: return "pinned"
         case .aiAgent: return "aiAgent"
         case .sms: return "sms"
+        case .templates: return "templates"
         case .type(let t): return "type:\(t.rawValue)"
         case .group(let name): return "group:\(name)"
         }
@@ -31,6 +33,7 @@ private enum QuickFilter: Equatable, Hashable {
         case "pinned": self = .pinned
         case "aiAgent": self = .aiAgent
         case "sms": self = .sms
+        case "templates": self = .templates
         default:
             guard let colon = storageString.firstIndex(of: ":") else { return nil }
             let prefix = String(storageString[..<colon])
@@ -124,6 +127,9 @@ struct QuickPanelView: View {
     @State private var userTypedSlash = false
     @State private var selectedItemIDs: Set<PersistentIdentifier> = []
     @State private var selectedFilter: QuickFilter = .all
+    @Query(sort: \TemplateSnippet.sortOrder) private var allTemplates: [TemplateSnippet]
+    @State private var templatePaneCoordinator = QuickTemplatePaneCoordinator()
+    @State private var saveAsTemplateDraft: SaveAsTemplateDraft?
     /// 各筛选标签在 tabBar 坐标系里的 frame，由子视图上报。滑块定位和拖拽命中都查它。
     @State private var tabFrames: [QuickFilter: CGRect] = [:]
     /// 拖拽中手指在 tabBar 坐标系里的 x。非 nil 即「正在拖」：滑块改为跟着这个值
@@ -413,6 +419,8 @@ struct QuickPanelView: View {
         .onChange(of: showCommandPalette) { syncCommandPalettePanel() }
     }
 
+    private var isTemplateFilterActive: Bool { selectedFilter == .templates }
+
     @ViewBuilder
     private var panelContent: some View {
         VStack(spacing: 0) {
@@ -421,7 +429,14 @@ struct QuickPanelView: View {
             if shouldShowTabBar {
                 NonDraggableArea { tabBar }
             }
-            if filteredItems.isEmpty {
+            if isTemplateFilterActive {
+                // 模板页签整块替换列表+预览：模板行内直接展示渲染结果首行
+                QuickTemplatePane(
+                    templates: allTemplates,
+                    searchText: $searchText,
+                    coordinator: templatePaneCoordinator
+                )
+            } else if filteredItems.isEmpty {
                 emptyStateView
             } else if isImageGridActive {
                 // 「图片」筛选 + 开了瀑布流：全宽网格替代列表（无右侧预览，图片面积最大）。
@@ -440,6 +455,9 @@ struct QuickPanelView: View {
                 }
             }
             footerBar
+        }
+        .sheet(item: $saveAsTemplateDraft) { draft in
+            SaveAsTemplateSheet(draft: draft)
         }
         .frame(minWidth: 360, minHeight: 420)
     }
@@ -933,6 +951,8 @@ struct QuickPanelView: View {
         case .pinned: store.pinnedOnly = true
         case .aiAgent: store.aiAgentOnly = true
         case .sms: store.smsOnly = true
+        // 模板页签整块替换列表区，条目筛选不参与——保持全量数据即可
+        case .templates: break
         case .type(let t): store.filterType = t
         case .group(let name): applyGroupFilter(name)
         }
@@ -965,6 +985,8 @@ struct QuickPanelView: View {
             return store.sidebarCounts.aiAgent > 0 ? .aiAgent : fallbackTabFilter
         case .sms:
             return (isTabVisible(.sms) && store.sidebarCounts.sms > 0) ? .sms : fallbackTabFilter
+        case .templates:
+            return (!allTemplates.isEmpty && isTabVisible(.templates)) ? .templates : fallbackTabFilter
         case .type(let t):
             return (secondaryRow == .types && availableContentTypes.contains(t)) ? .type(t) : fallbackTabFilter
         case .group(let name):
@@ -1348,6 +1370,9 @@ struct QuickPanelView: View {
             switch tab {
             case .pinned: break  // 上面已处理
             case .all: items.append((.all, tab.label))
+            case .templates:
+                // 没建过模板的用户不该看到空页签占位
+                if !allTemplates.isEmpty { items.append((.templates, tab.label)) }
             case .sms:
                 // 没开短信转发的用户一条都没有，标签不该占位
                 if store.sidebarCounts.sms > 0 { items.append((.sms, tab.label)) }
@@ -1920,6 +1945,11 @@ struct QuickPanelView: View {
             copyItemsToClipboard([item])
             selectItem(itemID)
         })
+        if item.contentType != .image, !item.content.isEmpty {
+            menu.append(.item(L10n.tr("action.saveAsTemplate")) {
+                saveAsTemplateDraft = SaveAsTemplateDraft(sourceItem: item)
+            })
+        }
         if layoutState.shouldShowPreview,
            item.contentType == .text || item.contentType == .code {
             menu.append(.item(L10n.tr("action.edit")) {
@@ -2099,6 +2129,13 @@ struct QuickPanelView: View {
             // Return, and Escape (which calls QuickPreviewPane.cancelEdit).
             if isPreviewEditing {
                 return event
+            }
+
+            // 模板页签：↑↓/Enter/⌘1–9/填写框 Tab 转发给模板面板自己处理；
+            // Esc、←→/Tab 切标签、⌘W/⌘T/⌘K 等关闭与切页类按键落回下面的共享 switch。
+            if isTemplateFilterActive,
+               handleTemplateModeKeyEvent(event, hasCmd: hasCmd, hasShift: hasShift, hasOption: hasOption, hasControl: hasControl) {
+                return nil
             }
 
             // Group suggestion keyboard navigation
@@ -2320,6 +2357,48 @@ struct QuickPanelView: View {
                 }
                 return event
             }
+        }
+    }
+
+    /// 模板页签下的按键分发。返回 true 表示已消费（monitor 吞掉事件）；
+    /// false 落回共享 switch（Esc 关闭、←→/Tab 切标签、⌘K 命令面板等）。
+    private func handleTemplateModeKeyEvent(
+        event: NSEvent,
+        hasCmd: Bool,
+        hasShift: Bool,
+        hasOption: Bool,
+        hasControl: Bool
+    ) -> Bool {
+        let coordinator = templatePaneCoordinator
+        let keyCode = Int(event.keyCode)
+        // 填写输入框持焦时字母与箭头留给输入框；Enter 粘贴、Tab 跳下一格
+        if coordinator.textInputActive {
+            switch keyCode {
+            case 36 where !hasOption && !hasControl:
+                coordinator.confirm?(hasCmd)
+                return true
+            case 48 where !hasCmd && !hasControl && !hasOption && !hasShift:
+                return coordinator.advanceFillFocus?() ?? false
+            default:
+                return false
+            }
+        }
+        switch keyCode {
+        case 126:
+            coordinator.moveSelection?(-1)
+            return true
+        case 125:
+            coordinator.moveSelection?(1)
+            return true
+        case 36:
+            coordinator.confirm?(hasCmd)
+            return true
+        default:
+            if hasCmd, let digit = Self.digitKeyMap[keyCode] {
+                coordinator.shortcutPaste?(digit)
+                return true
+            }
+            return false
         }
     }
 

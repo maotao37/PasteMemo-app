@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SwiftData
 
 /// 状态栏左键动作。右键始终弹菜单。
 enum MenuBarLeftClickAction: String, CaseIterable {
@@ -158,6 +159,23 @@ final class StatusBarController: NSObject {
 
         menu.addItem(.separator())
 
+        // 模板：快捷入口模板（按最近使用排序），点击渲染复制
+        let quickTemplates = fetchQuickAccessTemplates()
+        if !quickTemplates.isEmpty {
+            let submenu = NSMenu()
+            for template in quickTemplates.prefix(15) {
+                let item = makeItem(template.name, action: #selector(templateClicked(_:)))
+                item.representedObject = template.templateID
+                item.image = NSImage(systemSymbolName: template.icon, accessibilityDescription: nil)
+                submenu.addItem(item)
+            }
+            submenu.addItem(.separator())
+            submenu.addItem(makeItem(L10n.tr("template.manage"), action: #selector(openTemplateSettings)))
+            let parent = makeItem(L10n.tr("settings.templates"), action: nil)
+            parent.submenu = submenu
+            menu.addItem(parent)
+        }
+
         // 管理自动化规则
         menu.addItem(makeItem(L10n.tr("settings.automation.manage"), action: #selector(openAutomationManager)))
 
@@ -176,6 +194,31 @@ final class StatusBarController: NSObject {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
+    }
+
+    /// 快捷入口模板，按最近使用排序（没建过/全关掉时返回空，子菜单整个不出现）。
+    /// 菜单每次点击都现查现建，模板增删即时生效。
+    private func fetchQuickAccessTemplates() -> [TemplateSnippet] {
+        let context = PasteMemoApp.sharedModelContainer.mainContext
+        let descriptor = FetchDescriptor<TemplateSnippet>(
+            predicate: #Predicate { $0.isQuickAccess },
+            sortBy: [SortDescriptor(\.lastUsedAt, order: .reverse)]
+        )
+        return (try? context.fetch(descriptor)) ?? []
+    }
+
+    @objc private func templateClicked(_ sender: NSMenuItem) {
+        guard let templateID = sender.representedObject as? String else { return }
+        let context = PasteMemoApp.sharedModelContainer.mainContext
+        let descriptor = FetchDescriptor<TemplateSnippet>(
+            predicate: #Predicate { $0.templateID == templateID }
+        )
+        guard let template = try? context.fetch(descriptor).first else { return }
+        TemplateActions.copy(template)
+    }
+
+    @objc private func openTemplateSettings() {
+        AppAction.shared.openSettings?()
     }
 
     /// 用系统原生 keyEquivalent 显示快捷键（右对齐、灰色），而不是拼进标题。

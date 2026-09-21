@@ -67,6 +67,7 @@ enum QuickPanelSettings {
 
     static let pinnedTabID = "pinned"
     static let allTabID = "all"
+    static let templatesTabID = "templates"
     static let smsTabID = "sms"
 
     /// 被隐藏的类型集合
@@ -96,7 +97,8 @@ enum QuickPanelSettings {
     static var defaultTabOrderIDs: [String] {
         // 短信放末尾：它是小众维度（要开短信转发才有），排在内容类型前面会挤掉高频标签。
         // 也和「存过顺序的老用户那里它被补在末尾」保持一致。
-        [allTabID] + ClipContentType.visibleCases.map(\.rawValue) + [smsTabID]
+        // 模板紧跟「全部」：它和内容类型无关，是独立的输入维度。
+        [allTabID, templatesTabID] + ClipContentType.visibleCases.map(\.rawValue) + [smsTabID]
     }
 
     /// 把存下来的顺序修正成一份完整、无重复、无未知项的列表。
@@ -127,6 +129,8 @@ enum QuickPanelSettings {
 enum QuickPanelTabItem: Hashable, Identifiable {
     case pinned
     case all
+    /// 模板库。独立筛选维度（不是内容类型），只在存在任意模板时才出现在标签栏。
+    case templates
     /// 短信验证码。不是内容类型（那些条目本身是 `.text`），和 AI Agent 一样是一条
     /// 独立的筛选维度——只在真有短信条目时才出现在标签栏。
     case sms
@@ -138,6 +142,7 @@ enum QuickPanelTabItem: Hashable, Identifiable {
         switch self {
         case .pinned: QuickPanelSettings.pinnedTabID
         case .all: QuickPanelSettings.allTabID
+        case .templates: QuickPanelSettings.templatesTabID
         case .sms: QuickPanelSettings.smsTabID
         case .type(let type): type.rawValue
         }
@@ -147,6 +152,7 @@ enum QuickPanelTabItem: Hashable, Identifiable {
         switch raw {
         // 刻意不认 `pinned`：它不参与排序，老配置里存过也要被丢掉
         case QuickPanelSettings.allTabID: return .all
+        case QuickPanelSettings.templatesTabID: return .templates
         case QuickPanelSettings.smsTabID: return .sms
         default:
             guard let type = ClipContentType(rawValue: raw),
@@ -159,6 +165,7 @@ enum QuickPanelTabItem: Hashable, Identifiable {
         switch self {
         case .pinned: "pin"
         case .all: "tray.full"
+        case .templates: "text.badge.plus"
         case .sms: "message"
         case .type(let type): type.icon
         }
@@ -169,6 +176,7 @@ enum QuickPanelTabItem: Hashable, Identifiable {
         switch self {
         case .pinned: L10n.tr("filter.pinned")
         case .all: L10n.tr("filter.all")
+        case .templates: L10n.tr("filter.templates")
         case .sms: L10n.tr("filter.sms")
         case .type(let type): type.label
         }

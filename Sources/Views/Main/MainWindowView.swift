@@ -31,6 +31,7 @@ enum SidebarFilter: Equatable {
 struct MainWindowView: View {
     @EnvironmentObject var clipboardManager: ClipboardManager
     @Environment(\.modelContext) private var modelContext
+    @State private var saveAsTemplateDraft: SaveAsTemplateDraft?
     @State private var store = ClipItemStore()
     @State private var searchText = ""
     @State private var selectedFilter: SidebarFilter = .all
@@ -299,6 +300,9 @@ struct MainWindowView: View {
             .padding(30)
             .frame(width: 300)
             .interactiveDismissDisabled()
+        }
+        .sheet(item: $saveAsTemplateDraft) { draft in
+            SaveAsTemplateSheet(draft: draft)
         }
         .alert(L10n.tr("action.clearAll"), isPresented: $showDeleteConfirm) {
             Button(L10n.tr("action.delete"), role: .destructive) {
@@ -802,6 +806,11 @@ struct MainWindowView: View {
         menu.append(.item(L10n.tr("action.mergeCopy")) {
             if multi { copySelectedToClipboard() } else { copyToClipboard(item) }
         })
+        if !multi, item.contentType != .image, !item.content.isEmpty {
+            menu.append(.item(L10n.tr("action.saveAsTemplate")) {
+                saveAsTemplateDraft = SaveAsTemplateDraft(sourceItem: item)
+            })
+        }
         let hasPinned = targetItems.contains(where: \.isPinned)
         menu.append(.item((multi ? hasPinned : item.isPinned) ? L10n.tr("action.unpin") : L10n.tr("action.pin")) {
             let pin = multi ? !hasPinned : !item.isPinned

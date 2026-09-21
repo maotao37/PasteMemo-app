@@ -107,6 +107,8 @@ struct ExportTemplate: Codable {
     let isQuickAccess: Bool
     let createdAt: Date
     let updatedAt: Date
+    /// Absent in files written before usage tracking existed.
+    let lastUsedAt: Date?
 }
 
 struct ExportPayload: Codable {
@@ -452,7 +454,8 @@ enum DataPorter {
             sortOrder: template.sortOrder,
             isQuickAccess: template.isQuickAccess,
             createdAt: template.createdAt,
-            updatedAt: template.updatedAt
+            updatedAt: template.updatedAt,
+            lastUsedAt: template.lastUsedAt
         )
     }
 
@@ -591,6 +594,7 @@ enum DataPorter {
             template.templateID = exported.templateID
             template.createdAt = exported.createdAt
             template.updatedAt = exported.updatedAt
+            template.lastUsedAt = exported.lastUsedAt ?? .distantPast
             context.insert(template)
             inserted += 1
         }

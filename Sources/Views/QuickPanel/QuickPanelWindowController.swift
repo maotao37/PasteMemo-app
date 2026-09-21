@@ -425,6 +425,29 @@ final class QuickPanelWindowController {
         }
     }
 
+    /// 渲染后的模板文本走与剪贴板条目相同的粘贴回写管线（激活原应用 + 合成 ⌘V）。
+    /// 置顶连续快粘同样适用：保留面板、不重置 previousApp。
+    func dismissAndPasteText(_ text: String, clipboardManager: ClipboardManager, addNewLine: Bool = false) {
+        let appToRestore = previousApp
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        pasteboard.markAsPasteMemoWrite()
+        clipboardManager.lastChangeCount = pasteboard.changeCount
+        SoundManager.playPaste()
+
+        if !isPinned {
+            dismiss()
+            previousApp = nil
+            previousFocusIsTextInput = false
+        }
+
+        if let app = appToRestore {
+            app.activate()
+            clipboardManager.simulatePaste(forceNewLine: addNewLine, targetApp: app)
+        }
+    }
+
     var isVisible: Bool {
         panel?.isVisible ?? false
     }
