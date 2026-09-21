@@ -190,7 +190,7 @@ final class StatusBarController: NSObject {
         return menu
     }
 
-    private func makeItem(_ title: String, action: Selector) -> NSMenuItem {
+    private func makeItem(_ title: String, action: Selector?) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         return item
