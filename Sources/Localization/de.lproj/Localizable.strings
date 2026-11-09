@@ -169,7 +169,6 @@
 "settings.quickPanelTabTypes" = "Kategorien in der Tab-Leiste";
 "settings.quickPanelTabTypes.hint" = "Ziehen ordnet die Reiter um. Abwählen blendet den Reiter im Schnellpanel aus, die Seitenleiste bleibt unverändert.";
 "settings.quickPanelTabTypes.reset" = "Standard";
-"settings.history" = "Verlauf";
 "settings.retentionDays" = "Verlauf behalten";
 "settings.retentionDays.forever" = "Für immer";
 "settings.retentionDays.days" = "%d Tage";
@@ -300,6 +299,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "Daten";
+"dataPorter.importExport" = "Import & Export";
 "dataPorter.export" = "Daten exportieren";
 "dataPorter.compressing" = "Wird komprimiert...";
 "dataPorter.import" = "Daten importieren";
@@ -407,7 +407,6 @@
 
 "filter.sensitive" = "Sensibel";
 
-"settings.clearData" = "Daten löschen";
 
 "settings.sound" = "Ton";
 "settings.sound.enabled" = "Soundeffekte";
@@ -609,6 +608,7 @@ Verwenden Sie %@ zum Einfügen.";
 "detail.fileCount" = "Dateien";
 "detail.fileStatus" = "Status";
 "file.unavailable.missing" = "Datei existiert nicht mehr";
+"finder.notResponding" = "Finder reagiert nicht";
 "file.unavailable.denied" = "Kein Zugriffsrecht";
 "detail.format" = "Format";
 "detail.host" = "Host";
@@ -685,12 +685,6 @@ Verwenden Sie %@ zum Einfügen.";
 "stats.clips" = "Clips";
 
 /* Settings - Clear Data */
-"settings.clearData.1month" = "Älter als 1 Monat";
-"settings.clearData.1year" = "Älter als 1 Jahr";
-"settings.clearData.3months" = "Älter als 3 Monate";
-"settings.clearData.6months" = "Älter als 6 Monate";
-"settings.clearData.all" = "Alles löschen";
-"settings.clearData.result" = "%d Elemente gelöscht";
 "settings.doubleTap" = "Doppeltippen zum Öffnen";
 "settings.doubleTap.modifier" = "Modifikatortaste doppelt tippen";
 "settings.shortcut.clickToRecord" = "Zum Aufnehmen klicken";
@@ -733,7 +727,7 @@ Verwenden Sie %@ zum Einfügen.";
 "automation.rule.triggerMode" = "Auslöser";
 "automation.rule.triggerMode.automatic" = "Automatisch";
 "automation.rule.triggerMode.manual" = "Nur manuell";
-"automation.rule.triggerMode.shortcutManualOnly" = "Regeln mit „Kurzbefehl ausführen“, „KI-Umschreiben“ oder „Schnellpanel schließen“ funktionieren nur mit manuellem Auslöser";
+"automation.rule.triggerMode.shortcutManualOnly" = "Enthält Aktionen, die nur manuell laufen – nur manueller Auslöser möglich";
 "automation.rule.outputMode" = "Ergebnis geht an";
 "automation.rule.outputMode.replaceItem" = "Diesen Eintrag ersetzen";
 "automation.rule.outputMode.newItem" = "Neuer Eintrag";
@@ -1135,3 +1129,134 @@ Verwenden Sie %@ zum Einfügen.";
 "stats.runtime.memory.hint" = "Physical memory footprint";
 "stats.runtime.monitoring" = "Live";
 "stats.runtime.title" = "Runtime Resources";
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "Farbformat umwandeln";
+"automation.action.extractVerificationCode" = "Nur Bestätigungscode behalten";
+"automation.action.extractLinks" = "Nur Links behalten";
+"automation.action.runOCR" = "Text im Bild erkennen";
+"automation.action.deleteItem" = "Ursprünglichen Eintrag löschen";
+"automation.action.playSound" = "Ton abspielen";
+"automation.action.section.extract" = "Extrahieren & Erkennen";
+"automation.action.section.open" = "Öffnen & Relay";
+"automation.rule.outputMode.saveToFile" = "In Ordner speichern";
+"automation.rule.outputMode.postWebhook" = "An Webhook senden";
+"automation.output.folder.empty" = "Kein Ordner ausgewählt";
+"automation.output.folder.choose" = "Auswählen…";
+"automation.output.folder.invalid" = "Ordner nicht gefunden";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "Sendet JSON (content, contentType, sourceApp, rule, createdAt). Sensible Einträge werden nie gesendet.";
+"automation.output.webhook.invalidURL" = "Die Adresse muss mit http:// oder https:// beginnen";
+"automation.output.webhook.tooLarge" = "Zu lang, nicht gesendet";
+"automation.output.webhook.failedStatus" = "Senden fehlgeschlagen (HTTP %d)";
+"automation.output.webhook.failed" = "Senden fehlgeschlagen: %@";
+"automation.output.webhook.sent" = "Gesendet";
+"automation.output.webhook.refused" = "Sensible Einträge werden nicht gesendet";
+"automation.output.webhook.textOnly" = "Nur Text kann gesendet werden";
+"automation.output.saved" = "In „%@“ gespeichert";
+"automation.output.saveFailed" = "Speichern fehlgeschlagen. Prüfe, ob der Ordner noch existiert.";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Base64 kodieren";
+"automation.action.base64Decode" = "Base64 dekodieren";
+"automation.action.jsonFormat" = "JSON formatieren";
+"automation.action.jsonMinify" = "JSON verkleinern";
+"automation.action.toCamelCase" = "In camelCase umwandeln";
+"automation.action.toSnakeCase" = "In snake_case umwandeln";
+"automation.action.toHalfWidth" = "Vollbreite zu Halbbreite";
+"automation.action.toFullWidth" = "Halbbreite zu Vollbreite";
+"automation.action.simplifiedToTraditional" = "Vereinfacht zu traditionell (Chinesisch)";
+"automation.action.removeDuplicateLines" = "Doppelte Zeilen entfernen";
+"automation.action.sortLines" = "Zeilen sortieren";
+"automation.action.sortLines.ascending" = "Aufsteigend";
+"automation.action.sortLines.descending" = "Absteigend";
+"automation.action.joinLines" = "Zeilen verbinden";
+"automation.action.joinLines.space" = "Leerzeichen";
+"automation.action.joinLines.none" = "Ohne Trennzeichen";
+"automation.action.removeHTMLTags" = "HTML-Tags entfernen";
+"automation.action.section.format" = "Umwandeln";
+"automation.action.section.lines" = "Zeilen";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "Inhalt";
+"automation.condition.section.app" = "Apps";
+"automation.condition.section.state" = "Eintragsstatus";
+"automation.condition.section.time" = "Zeit";
+"automation.condition.targetApp" = "Einfügen in";
+"automation.condition.targetApp.help" = "Nur im Schnellpanel und beim Relay-Einfügen bekannt. Beim Kopieren ausgelöste Regeln erfüllen dies nie.";
+"automation.condition.contentLength" = "Zeichenanzahl";
+"automation.condition.lineCount" = "Zeilenanzahl";
+"automation.condition.range.min" = "Min.";
+"automation.condition.range.max" = "Max.";
+"automation.condition.range.any" = "Beliebig";
+"automation.condition.isPinned" = "Ist angeheftet";
+"automation.condition.isSensitive" = "Ist als sensibel markiert";
+"automation.condition.inGroup" = "Gruppe ist";
+"automation.condition.inGroup.any" = "Beliebige Gruppe";
+"automation.condition.timeOfDay" = "Uhrzeit";
+"automation.condition.weekday" = "Wochentag";
+"automation.condition.negated" = "Nicht erfüllt";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "Sensible Einträge behalten";
+"settings.privacy.sensitiveRetention.followHistory" = "Wie Verlauf";
+"settings.privacy.sensitiveRetention.minutes" = "%d Minuten";
+"settings.privacy.sensitiveRetention.hours" = "%d Std.";
+"settings.privacy.sensitiveRetention.hint" = "Ab dem letzten Kopieren oder Einfügen gezählt, danach gelöscht. Angeheftete Einträge und Einträge in dauerhaft behaltenen Gruppen bleiben.";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "%d sensible Einträge werden gelöscht";
+
+/* Storage */
+"settings.storage" = "Speicher";
+"storage.manage.title" = "Speicher verwalten";
+"storage.manage" = "Verwalten";
+"storage.recordCount" = "%@ Einträge";
+"storage.scanFailed" = "Daten konnten nicht gelesen werden";
+"storage.scanning" = "Wird berechnet...";
+"storage.part.originals" = "Originale";
+"storage.part.previews" = "Vorschaubilder";
+"storage.part.richText" = "Formatierter Text";
+"storage.byType" = "Nach Typ";
+"storage.itemCount" = "%@ Einträge";
+"storage.autoClean" = "Automatische Bereinigung";
+"storage.optimize" = "Optimieren";
+"storage.tiff.title" = "TIFF-Originale verlustfrei in PNG umwandeln";
+"storage.tiff.detail" = "%1$@ Bilder · %2$@";
+"storage.tiff.progress" = "Wird umgewandelt: %1$@ von %2$@";
+"storage.tiff.result" = "%1$@ Bilder umgewandelt, %2$@ gespart";
+"storage.tiff.kept" = "%@ Bilder lassen sich nicht verlustfrei umwandeln und bleiben TIFF";
+"storage.sourceCount" = "%@ Quellen";
+"storage.grouping.source" = "Nach Quelle";
+"storage.typeCount" = "%@ Typen";
+"storage.column.type" = "Typ";
+"storage.typeSelectionSummary" = "%1$@ Typen ausgewählt · %2$@ Einträge · %3$@";
+"storage.searchSources" = "Quellen suchen";
+"storage.allSources" = "Alle Quellen";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "Quelle";
+"storage.column.latest" = "Zuletzt kopiert";
+"storage.column.count" = "Einträge";
+"storage.column.size" = "Größe";
+"storage.protectedNote" = "Gelöscht werden Einträge in PasteMemo, nicht deine Originaldateien. Angeheftete Elemente und Elemente in dauerhaften Gruppen werden nie gelöscht.";
+"storage.protectedExcluded" = "Ohne %@ angeheftete Elemente oder Elemente aus dauerhaften Gruppen";
+"storage.deleteRecords" = "Einträge löschen";
+"storage.delete.scope" = "Gelöscht werden nur die Einträge in PasteMemo und die Kopien, die es speichert – deine Originaldateien bleiben unberührt. Das kann nicht rückgängig gemacht werden.";
+"storage.selectionSummary" = "%1$@ Quellen ausgewählt · %2$@ Einträge · %3$@";
+"storage.delete.confirm" = "%@ Einträge löschen?";
+"storage.deleting" = "Wird gelöscht...";
+"storage.empty" = "Nichts zu bereinigen";
+"storage.time.all" = "Gesamter Zeitraum";
+"storage.time.1month" = "Älter als 1 Monat";
+"storage.time.3months" = "Älter als 3 Monate";
+"storage.time.6months" = "Älter als 6 Monate";
+"storage.time.1year" = "Älter als 1 Jahr";
+"storage.time.custom" = "Eigener Zeitraum...";
+"storage.type.all" = "Alle Typen";
+"storage.listSeparator" = ", ";
+"storage.sort.size" = "Größte zuerst";
+"storage.sort.latest" = "Neueste zuerst";
+"storage.selectAll" = "Alle auswählen";
+"storage.deselectAll" = "Auswahl aufheben";
+"storage.itemSelectionSummary" = "%1$@ ausgewählt · %2$@";
+"storage.custom.title" = "Eigener Zeitraum";
+"storage.custom.from" = "Von";
+"storage.custom.to" = "Bis";

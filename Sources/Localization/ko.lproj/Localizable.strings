@@ -169,7 +169,6 @@
 "settings.quickPanelTabTypes" = "탭 바에 표시할 분류";
 "settings.quickPanelTabTypes.hint" = "드래그해 순서를 바꿉니다. 체크를 해제하면 빠른 패널에서 숨겨지며 사이드바는 그대로입니다.";
 "settings.quickPanelTabTypes.reset" = "기본값";
-"settings.history" = "기록";
 "settings.retentionDays" = "기록 보관";
 "settings.retentionDays.forever" = "영구";
 "settings.retentionDays.days" = "%d일";
@@ -300,6 +299,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "데이터";
+"dataPorter.importExport" = "가져오기 및 내보내기";
 "dataPorter.export" = "데이터 내보내기";
 "dataPorter.compressing" = "압축 중...";
 "dataPorter.import" = "데이터 가져오기";
@@ -407,7 +407,6 @@
 
 "filter.sensitive" = "민감";
 
-"settings.clearData" = "데이터 지우기";
 
 "settings.sound" = "소리";
 "settings.sound.enabled" = "효과음";
@@ -611,6 +610,7 @@
 "detail.fileCount" = "파일 수";
 "detail.fileStatus" = "상태";
 "file.unavailable.missing" = "파일이 존재하지 않습니다";
+"finder.notResponding" = "Finder가 응답하지 않습니다";
 "file.unavailable.denied" = "접근 권한이 없습니다";
 "detail.format" = "포맷";
 "detail.host" = "호스트";
@@ -689,12 +689,6 @@
 "stats.clips" = "클립";
 
 /* Settings - Clear Data */
-"settings.clearData.1month" = "1개월 이전";
-"settings.clearData.1year" = "1년 이전";
-"settings.clearData.3months" = "3개월 이전";
-"settings.clearData.6months" = "6개월 이전";
-"settings.clearData.all" = "모두 삭제";
-"settings.clearData.result" = "%d개 항목 삭제됨";
 
 /* Settings - Double Tap */
 "settings.doubleTap" = "두 번 눌러 열기";
@@ -743,7 +737,7 @@
 "automation.rule.triggerMode" = "트리거";
 "automation.rule.triggerMode.automatic" = "자동";
 "automation.rule.triggerMode.manual" = "수동만";
-"automation.rule.triggerMode.shortcutManualOnly" = "단축어 실행, AI 다시 쓰기, 빠른 패널 닫기가 포함된 규칙은 수동 트리거에서만 동작";
+"automation.rule.triggerMode.shortcutManualOnly" = "수동으로만 실행되는 동작이 있어 수동 트리거에서만 동작";
 "automation.rule.outputMode" = "결과 위치";
 "automation.rule.outputMode.replaceItem" = "이 항목 대체";
 "automation.rule.outputMode.newItem" = "새 항목 생성";
@@ -1151,3 +1145,134 @@
 "stats.runtime.memory.hint" = "Physical memory footprint";
 "stats.runtime.monitoring" = "Live";
 "stats.runtime.title" = "Runtime Resources";
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "색상 형식 변환";
+"automation.action.extractVerificationCode" = "인증 코드만 남기기";
+"automation.action.extractLinks" = "링크만 남기기";
+"automation.action.runOCR" = "이미지 속 텍스트 인식";
+"automation.action.deleteItem" = "원래 항목 삭제";
+"automation.action.playSound" = "사운드 재생";
+"automation.action.section.extract" = "추출 및 인식";
+"automation.action.section.open" = "열기 및 릴레이";
+"automation.rule.outputMode.saveToFile" = "폴더에 저장";
+"automation.rule.outputMode.postWebhook" = "Webhook으로 전송";
+"automation.output.folder.empty" = "선택한 폴더 없음";
+"automation.output.folder.choose" = "선택…";
+"automation.output.folder.invalid" = "폴더를 찾을 수 없습니다";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "JSON(content, contentType, sourceApp, rule, createdAt)을 전송합니다. 민감한 항목은 전송하지 않습니다.";
+"automation.output.webhook.invalidURL" = "주소는 http:// 또는 https://로 시작해야 합니다";
+"automation.output.webhook.tooLarge" = "내용이 너무 길어 전송하지 않았습니다";
+"automation.output.webhook.failedStatus" = "전송 실패(HTTP %d)";
+"automation.output.webhook.failed" = "전송 실패: %@";
+"automation.output.webhook.sent" = "전송함";
+"automation.output.webhook.refused" = "민감한 항목은 전송하지 않습니다";
+"automation.output.webhook.textOnly" = "텍스트만 전송할 수 있습니다";
+"automation.output.saved" = "‘%@’에 저장함";
+"automation.output.saveFailed" = "저장하지 못했습니다. 폴더가 있는지 확인하세요";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Base64 인코딩";
+"automation.action.base64Decode" = "Base64 디코딩";
+"automation.action.jsonFormat" = "JSON 정렬";
+"automation.action.jsonMinify" = "JSON 압축";
+"automation.action.toCamelCase" = "카멜 케이스로 변환";
+"automation.action.toSnakeCase" = "스네이크 케이스로 변환";
+"automation.action.toHalfWidth" = "전각을 반각으로";
+"automation.action.toFullWidth" = "반각을 전각으로";
+"automation.action.simplifiedToTraditional" = "간체를 번체로";
+"automation.action.removeDuplicateLines" = "중복 줄 삭제";
+"automation.action.sortLines" = "줄 정렬";
+"automation.action.sortLines.ascending" = "오름차순";
+"automation.action.sortLines.descending" = "내림차순";
+"automation.action.joinLines" = "한 줄로 합치기";
+"automation.action.joinLines.space" = "공백";
+"automation.action.joinLines.none" = "구분자 없음";
+"automation.action.removeHTMLTags" = "HTML 태그 제거";
+"automation.action.section.format" = "형식 변환";
+"automation.action.section.lines" = "줄 처리";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "내용";
+"automation.condition.section.app" = "앱";
+"automation.condition.section.state" = "항목 상태";
+"automation.condition.section.time" = "시간";
+"automation.condition.targetApp" = "붙여넣을 앱이";
+"automation.condition.targetApp.help" = "빠른 패널과 릴레이 붙여넣기에서만 판단됩니다. 복사 시 자동 실행되는 규칙은 이 조건을 충족하지 않습니다";
+"automation.condition.contentLength" = "글자 수";
+"automation.condition.lineCount" = "줄 수";
+"automation.condition.range.min" = "최소";
+"automation.condition.range.max" = "최대";
+"automation.condition.range.any" = "제한 없음";
+"automation.condition.isPinned" = "고정됨";
+"automation.condition.isSensitive" = "민감으로 표시됨";
+"automation.condition.inGroup" = "그룹이";
+"automation.condition.inGroup.any" = "아무 그룹";
+"automation.condition.timeOfDay" = "시간대";
+"automation.condition.weekday" = "요일";
+"automation.condition.negated" = "충족 안 함";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "민감한 항목 보관";
+"settings.privacy.sensitiveRetention.followHistory" = "기록과 동일";
+"settings.privacy.sensitiveRetention.minutes" = "%d분";
+"settings.privacy.sensitiveRetention.hours" = "%d시간";
+"settings.privacy.sensitiveRetention.hint" = "마지막으로 복사하거나 붙여넣은 때부터 계산해 기간이 지나면 삭제합니다. 고정된 항목과 영구 보관 그룹의 항목은 남습니다.";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "민감한 항목 %d개가 삭제됩니다";
+
+/* Storage */
+"settings.storage" = "저장 공간";
+"storage.manage.title" = "저장 공간 관리";
+"storage.manage" = "관리";
+"storage.recordCount" = "항목 %@개";
+"storage.scanFailed" = "데이터를 읽을 수 없습니다";
+"storage.scanning" = "계산 중...";
+"storage.part.originals" = "원본";
+"storage.part.previews" = "미리보기 이미지";
+"storage.part.richText" = "서식 있는 텍스트";
+"storage.byType" = "유형별";
+"storage.itemCount" = "%@개";
+"storage.autoClean" = "자동 정리";
+"storage.optimize" = "최적화";
+"storage.tiff.title" = "TIFF 원본을 PNG로 무손실 변환";
+"storage.tiff.detail" = "%1$@장 · %2$@";
+"storage.tiff.progress" = "변환 중 %1$@ / %2$@";
+"storage.tiff.result" = "%1$@장 변환, %2$@ 절약";
+"storage.tiff.kept" = "%@장은 무손실 변환이 불가능해 TIFF로 유지됩니다";
+"storage.sourceCount" = "출처 %@개";
+"storage.grouping.source" = "출처별";
+"storage.typeCount" = "유형 %@개";
+"storage.column.type" = "유형";
+"storage.typeSelectionSummary" = "유형 %1$@개 선택 · 항목 %2$@개 · %3$@";
+"storage.searchSources" = "출처 검색";
+"storage.allSources" = "모든 출처";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "출처";
+"storage.column.latest" = "최근 복사";
+"storage.column.count" = "항목 수";
+"storage.column.size" = "크기";
+"storage.protectedNote" = "PasteMemo의 항목만 삭제되며 원본 파일은 그대로입니다. 고정된 항목과 영구 보관 그룹의 항목은 삭제되지 않습니다.";
+"storage.protectedExcluded" = "고정 항목 및 영구 보관 그룹의 항목 %@개 제외";
+"storage.deleteRecords" = "항목 삭제";
+"storage.delete.scope" = "PasteMemo의 항목과 보관 중인 사본만 삭제되며 원본 파일은 그대로입니다. 되돌릴 수 없습니다.";
+"storage.selectionSummary" = "출처 %1$@개 선택 · 항목 %2$@개 · %3$@";
+"storage.delete.confirm" = "항목 %@개를 삭제할까요?";
+"storage.deleting" = "삭제 중...";
+"storage.empty" = "정리할 항목이 없습니다";
+"storage.time.all" = "전체 기간";
+"storage.time.1month" = "1개월 이전";
+"storage.time.3months" = "3개월 이전";
+"storage.time.6months" = "6개월 이전";
+"storage.time.1year" = "1년 이전";
+"storage.time.custom" = "기간 지정...";
+"storage.type.all" = "모든 유형";
+"storage.listSeparator" = ", ";
+"storage.sort.size" = "큰 항목 순";
+"storage.sort.latest" = "최신순";
+"storage.selectAll" = "모두 선택";
+"storage.deselectAll" = "선택 해제";
+"storage.itemSelectionSummary" = "%1$@개 선택 · %2$@";
+"storage.custom.title" = "기간 지정";
+"storage.custom.from" = "시작";
+"storage.custom.to" = "종료";

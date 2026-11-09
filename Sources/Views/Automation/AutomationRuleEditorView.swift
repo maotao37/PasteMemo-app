@@ -14,6 +14,7 @@ struct AutomationRuleEditorView: View {
     @State private var draftTrigger: TriggerMode = .automatic
     @State private var draftLogic: ConditionLogic = .all
     @State private var draftOutput: RuleOutputMode = .replaceItem
+    @State private var draftOutputParam = ""
     @State private var draftNotifyBefore = false
     @State private var draftNotifyOn = false
     @State private var conditions: [IdentifiedCondition] = []
@@ -39,6 +40,7 @@ struct AutomationRuleEditorView: View {
             || draftTrigger != rule.triggerMode
             || draftLogic != rule.conditionLogic
             || draftOutput != rule.outputMode
+            || draftOutputParam != rule.outputParam
             || draftNotifyBefore != rule.notifyBeforeApply
             || draftNotifyOn != rule.notifyOnTrigger
             || conditions.map(\.value) != rule.conditions
@@ -387,6 +389,21 @@ struct AutomationRuleEditorView: View {
                     .fixedSize()
                     Spacer()
                 }
+                if draftOutput == .saveToFile {
+                    cardRow { outputFolderRow }
+                } else if draftOutput == .postWebhook {
+                    cardRow {
+                        TextField("", text: $draftOutputParam,
+                                  prompt: Text(L10n.tr("automation.output.webhook.placeholder")))
+                            .labelsHidden()
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    cardRow {
+                        Text(L10n.tr("automation.output.webhook.help"))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 if draftTrigger == .automatic, draftOutput.mirrorsToPasteboardOnCapture {
                     cardRow {
                         Text(L10n.tr("automation.rule.outputMode.help"))
@@ -403,6 +420,15 @@ struct AutomationRuleEditorView: View {
             } else {
                 cardRow {
                     Text(L10n.tr("automation.rule.outputMode.\(rule.outputMode.rawValue)"))
+                    if rule.outputMode.needsParameter {
+                        Spacer()
+                        Text(rule.outputParam)
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
                 }
                 rowDivider
                 cardRow {
@@ -412,6 +438,33 @@ struct AutomationRuleEditorView: View {
                 }
             }
         }
+    }
+
+    private var outputFolderRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "folder").foregroundStyle(.secondary)
+            Text(draftOutputParam.isEmpty
+                 ? L10n.tr("automation.output.folder.empty")
+                 : (draftOutputParam as NSString).abbreviatingWithTildeInPath)
+                .foregroundStyle(draftOutputParam.isEmpty ? .tertiary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Button(L10n.tr("automation.output.folder.choose")) { chooseOutputFolder() }
+        }
+    }
+
+    private func chooseOutputFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        if let current = RuleOutputDelivery.folderURL(from: draftOutputParam) {
+            panel.directoryURL = current
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        draftOutputParam = url.path
     }
 
     // MARK: - Preview
@@ -504,6 +557,7 @@ struct AutomationRuleEditorView: View {
         draftTrigger = rule.triggerMode
         draftLogic = rule.conditionLogic
         draftOutput = rule.outputMode
+        draftOutputParam = rule.outputParam
         draftNotifyBefore = rule.notifyBeforeApply
         draftNotifyOn = rule.notifyOnTrigger
         conditions = rule.conditions.map { IdentifiedCondition(value: $0) }
@@ -516,6 +570,7 @@ struct AutomationRuleEditorView: View {
     /// Commit every draft field. Turning notifications on asks for permission and backs
     /// the toggle out if it's refused.
     private func save() {
+        guard validateOutput() else { return }
         let wantsNotification = draftNotifyOn && !rule.notifyOnTrigger
         if rule.isBuiltIn {
             // Renaming a built-in makes it the user's own rule; remember the original key
@@ -534,6 +589,9 @@ struct AutomationRuleEditorView: View {
         rule.triggerMode = ruleRequiresManual ? .manual : draftTrigger
         draftTrigger = rule.triggerMode
         rule.outputMode = draftOutput
+        rule.outputParam = draftOutput.needsParameter
+            ? draftOutputParam.trimmingCharacters(in: .whitespacesAndNewlines) : ""
+        draftOutputParam = rule.outputParam
         rule.notifyBeforeApply = draftNotifyBefore
         rule.notifyOnTrigger = draftNotifyOn
         rule.updatedAt = Date()
@@ -557,65 +615,226 @@ struct AutomationRuleEditorView: View {
         HStack {
             NativePullDownButton(title: L10n.tr("automation.condition.add")) {
                 [
-                    .item(L10n.tr("automation.condition.anyText"), symbol: "text.alignleft") { conditions.append(IdentifiedCondition(value: .anyText)) },
-                    .item(L10n.tr("automation.condition.contentType"), symbol: "doc") { conditions.append(IdentifiedCondition(value: .contentType(.text))) },
-                    .item(L10n.tr("automation.condition.containsText"), symbol: "magnifyingglass") { conditions.append(IdentifiedCondition(value: .containsText(text: ""))) },
-                    .item(L10n.tr("automation.condition.regexMatch"), symbol: "asterisk") { conditions.append(IdentifiedCondition(value: .regexMatch(pattern: ""))) },
-                    .item(L10n.tr("automation.condition.sourceApp"), symbol: "app") { conditions.append(IdentifiedCondition(value: .sourceApp(bundleIDs: []))) },
+                    .submenu(L10n.tr("automation.condition.section.content"), symbol: "doc.text", [
+                        conditionItem("automation.condition.anyText", .anyText),
+                        conditionItem("automation.condition.contentType", .contentType(.text)),
+                        conditionItem("automation.condition.containsText", .containsText(text: "")),
+                        conditionItem("automation.condition.regexMatch", .regexMatch(pattern: "")),
+                        conditionItem("automation.condition.contentLength", .contentLength(min: nil, max: nil)),
+                        conditionItem("automation.condition.lineCount", .lineCount(min: nil, max: nil)),
+                    ]),
+                    .submenu(L10n.tr("automation.condition.section.app"), symbol: "app", [
+                        conditionItem("automation.condition.sourceApp", .sourceApp(bundleIDs: [])),
+                        conditionItem("automation.condition.targetApp", .targetApp(bundleIDs: [])),
+                    ]),
+                    .submenu(L10n.tr("automation.condition.section.state"), symbol: "tag", [
+                        conditionItem("automation.condition.isPinned", .isPinned),
+                        conditionItem("automation.condition.isSensitive", .isSensitive),
+                        conditionItem("automation.condition.inGroup", .inGroup(name: "")),
+                    ]),
+                    .submenu(L10n.tr("automation.condition.section.time"), symbol: "clock", [
+                        conditionItem("automation.condition.timeOfDay", .timeOfDay(startMinute: 9 * 60, endMinute: 18 * 60)),
+                        conditionItem("automation.condition.weekday", .weekday(days: [2, 3, 4, 5, 6])),
+                    ]),
                 ]
             }
             .fixedSize()
             Spacer()
         }
     }
+
+    private func conditionItem(_ key: String, _ condition: RuleCondition) -> NativeMenuItem {
+        .item(L10n.tr(key)) { conditions.append(IdentifiedCondition(value: condition)) }
+    }
+
+    /// One editable condition. A negated condition is stored as `.not(base)` and edited
+    /// as `base` plus the "not met" switch; `set` writes the wrapper back.
     @ViewBuilder
     private func conditionRow(_ condition: RuleCondition, at index: Int) -> some View {
-        if case .sourceApp(let bundleIDs) = condition {
-            sourceAppRow(bundleIDs: bundleIDs, at: index)
-        } else {
+        let (base, negated) = condition.unwrappedNegation
+        let set: (RuleCondition) -> Void = { conditions[index].value = negated ? .not($0) : $0 }
+        switch base {
+        case .sourceApp(let bundleIDs):
+            appListRow(titleKey: "automation.condition.sourceApp", bundleIDs: bundleIDs, condition: condition, at: index) {
+                set(.sourceApp(bundleIDs: $0))
+            }
+        case .targetApp(let bundleIDs):
+            appListRow(titleKey: "automation.condition.targetApp", bundleIDs: bundleIDs, condition: condition, at: index,
+                       note: L10n.tr("automation.condition.targetApp.help")) {
+                set(.targetApp(bundleIDs: $0))
+            }
+        default:
             HStack {
-                switch condition {
-                case .contentType(let type):
-                    Picker(L10n.tr("automation.condition.contentType"), selection: Binding(
-                        get: { type },
-                        set: { conditions[index].value = .contentType($0) }
-                    )) {
-                        ForEach(ClipContentType.ruleEditorVisibleCases, id: \.self) { t in
-                            Text(t.label).tag(t)
-                        }
-                    }
-                
-                case .anyText:
-                    Text(L10n.tr("automation.condition.anyText"))
-                case .regexMatch(let pattern):
-                    TextField(L10n.tr("automation.condition.regexMatch"), text: Binding(
-                        get: { pattern },
-                        set: { conditions[index].value = .regexMatch(pattern: $0) }
-                    ), prompt: Text(L10n.tr("automation.condition.regexMatch.placeholder")))
-                    .font(.system(.body, design: .monospaced))
-                
-                case .containsText(let text):
-                    TextField(L10n.tr("automation.condition.containsText"), text: Binding(
-                        get: { text },
-                        set: { conditions[index].value = .containsText(text: $0) }
-                    ), prompt: Text(L10n.tr("automation.condition.containsText.placeholder")))
-                
-                default:
-                    EmptyView()
-                }
+                conditionControls(base, set: set)
                 Spacer(minLength: 8)
+                negateToggle(condition, at: index)
                 removeButton { conditions.remove(at: index) }
-            
             }
         }
     }
+
     @ViewBuilder
-    private func sourceAppRow(bundleIDs: [String], at index: Int) -> some View {
+    private func conditionControls(_ condition: RuleCondition, set: @escaping (RuleCondition) -> Void) -> some View {
+        switch condition {
+        case .contentType(let type):
+            Picker(L10n.tr("automation.condition.contentType"), selection: Binding(
+                get: { type },
+                set: { set(.contentType($0)) }
+            )) {
+                ForEach(ClipContentType.ruleEditorVisibleCases, id: \.self) { t in
+                    Text(t.label).tag(t)
+                }
+            }
+        case .anyText:
+            Text(L10n.tr("automation.condition.anyText"))
+        case .regexMatch(let pattern):
+            TextField(L10n.tr("automation.condition.regexMatch"), text: Binding(
+                get: { pattern },
+                set: { set(.regexMatch(pattern: $0)) }
+            ), prompt: Text(L10n.tr("automation.condition.regexMatch.placeholder")))
+            .font(.system(.body, design: .monospaced))
+        case .containsText(let text):
+            TextField(L10n.tr("automation.condition.containsText"), text: Binding(
+                get: { text },
+                set: { set(.containsText(text: $0)) }
+            ), prompt: Text(L10n.tr("automation.condition.containsText.placeholder")))
+        case .contentLength(let min, let max):
+            rangeFields(titleKey: "automation.condition.contentLength", min: min, max: max) {
+                set(.contentLength(min: $0, max: $1))
+            }
+        case .lineCount(let min, let max):
+            rangeFields(titleKey: "automation.condition.lineCount", min: min, max: max) {
+                set(.lineCount(min: $0, max: $1))
+            }
+        case .isPinned:
+            Text(L10n.tr("automation.condition.isPinned"))
+        case .isSensitive:
+            Text(L10n.tr("automation.condition.isSensitive"))
+        case .inGroup(let name):
+            // Same shape as the "move to group" action's picker — no `.fixedSize()`.
+            Picker(L10n.tr("automation.condition.inGroup"), selection: Binding(
+                get: { name },
+                set: { set(.inGroup(name: $0)) }
+            )) {
+                let groups = (try? modelContext.fetch(FetchDescriptor<SmartGroup>(sortBy: [SortDescriptor(\.sortOrder)]))) ?? []
+                Text(L10n.tr("automation.condition.inGroup.any")).tag("")
+                ForEach(groups, id: \.name) { group in
+                    Label(group.name, systemImage: group.icon).tag(group.name)
+                }
+            }
+        case .timeOfDay(let start, let end):
+            Text(L10n.tr("automation.condition.timeOfDay"))
+            DatePicker("", selection: minuteBinding(start) { set(.timeOfDay(startMinute: $0, endMinute: end)) },
+                       displayedComponents: .hourAndMinute)
+                .labelsHidden()
+                .fixedSize()
+            Text("–").foregroundStyle(.secondary)
+            DatePicker("", selection: minuteBinding(end) { set(.timeOfDay(startMinute: start, endMinute: $0)) },
+                       displayedComponents: .hourAndMinute)
+                .labelsHidden()
+                .fixedSize()
+        case .weekday(let days):
+            Text(L10n.tr("automation.condition.weekday"))
+            weekdayToggles(days) { set(.weekday(days: $0)) }
+        case .sourceApp, .targetApp, .not:
+            EmptyView()
+        }
+    }
+
+    /// "Not met" switch: flips the row between `base` and `.not(base)`. Takes the
+    /// row's condition instead of reading `conditions[index]` while rendering.
+    private func negateToggle(_ condition: RuleCondition, at index: Int) -> some View {
+        let (base, negated) = condition.unwrappedNegation
+        return Toggle(L10n.tr("automation.condition.negated"), isOn: Binding(
+            get: { negated },
+            set: { conditions[index].value = $0 ? .not(base) : base }
+        ))
+        .toggleStyle(.button)
+        .controlSize(.small)
+    }
+
+    private var negationBadge: some View {
+        Text(L10n.tr("automation.condition.negated"))
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.orange.opacity(0.15)))
+            .foregroundStyle(.orange)
+    }
+
+    private func rangeFields(titleKey: String, min: Int?, max: Int?, set: @escaping (Int?, Int?) -> Void) -> some View {
+        HStack(spacing: 6) {
+            Text(L10n.tr(titleKey))
+            optionalNumberField(min, placeholderKey: "automation.condition.range.min") { set($0, max) }
+            Text("–").foregroundStyle(.secondary)
+            optionalNumberField(max, placeholderKey: "automation.condition.range.max") { set(min, $0) }
+        }
+    }
+
+    private func optionalNumberField(_ value: Int?, placeholderKey: String, set: @escaping (Int?) -> Void) -> some View {
+        TextField("", text: Binding(
+            get: { value.map(String.init) ?? "" },
+            set: { text in
+                let digits = String(text.filter { $0.isASCII && $0.isNumber }.prefix(9))
+                set(digits.isEmpty ? nil : Int(digits))
+            }
+        ), prompt: Text(L10n.tr(placeholderKey)))
+        .labelsHidden()
+        .multilineTextAlignment(.trailing)
+        .frame(width: 64)
+    }
+
+    private func minuteBinding(_ minute: Int, set: @escaping (Int) -> Void) -> Binding<Date> {
+        Binding(
+            get: { Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: Date()) ?? Date() },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                set((parts.hour ?? 0) * 60 + (parts.minute ?? 0))
+            }
+        )
+    }
+
+    /// Weekdays in the user's calendar order (Monday first in most regions).
+    private static var orderedWeekdays: [Int] {
+        let first = Calendar.current.firstWeekday
+        return (0..<7).map { (first - 1 + $0) % 7 + 1 }
+    }
+
+    private static func weekdayName(_ day: Int) -> String {
+        Calendar.current.shortStandaloneWeekdaySymbols[day - 1]
+    }
+
+    private func weekdayToggles(_ days: [Int], set: @escaping ([Int]) -> Void) -> some View {
+        HStack(spacing: 4) {
+            ForEach(Self.orderedWeekdays, id: \.self) { day in
+                Toggle(Self.weekdayName(day), isOn: Binding(
+                    get: { days.contains(day) },
+                    set: { on in
+                        var next = Set(days)
+                        if on { next.insert(day) } else { next.remove(day) }
+                        set(next.sorted())
+                    }
+                ))
+                .toggleStyle(.button)
+                .controlSize(.small)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func appListRow(titleKey: String, bundleIDs: [String], condition: RuleCondition, at index: Int,
+                            note: String? = nil, set: @escaping ([String]) -> Void) -> some View {
         VStack(alignment: .leading, spacing: bundleIDs.isEmpty ? 6 : 10) {
             HStack {
-                Text(L10n.tr("automation.condition.sourceApp"))
+                Text(L10n.tr(titleKey))
                 Spacer()
+                negateToggle(condition, at: index)
                 removeButton { conditions.remove(at: index) }
+            }
+            if let note {
+                Text(note)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
             if bundleIDs.isEmpty {
                 Text(L10n.tr("automation.condition.sourceApp.empty"))
@@ -628,22 +847,18 @@ struct AutomationRuleEditorView: View {
                     Text(appName(for: bid))
                     Spacer()
                     Button {
-                        var ids = bundleIDs
-                        ids.removeAll { $0 == bid }
-                        conditions[index].value = .sourceApp(bundleIDs: ids)
+                        set(bundleIDs.filter { $0 != bid })
                     } label: {
                         Image(systemName: "minus.circle.fill").foregroundStyle(.secondary.opacity(0.5))
                     }
                     .buttonStyle(.borderless)
-                
                 }
             }
             Button(L10n.tr("automation.condition.sourceApp.add")) {
-                browseForApp(at: index, existing: bundleIDs)
+                browseForApp(existing: bundleIDs, set: set)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
-        
         }
     }
     /// Grouped submenus: the flat five-section list ran out of room once the
@@ -654,7 +869,21 @@ struct AutomationRuleEditorView: View {
                 [
                     .submenu(L10n.tr("automation.action.section.text"), symbol: "textformat", [
                         actionItem(.lowercased), actionItem(.uppercased), actionItem(.trimWhitespace),
-                        actionItem(.removeBlankLines), actionItem(.stripRichText),
+                        actionItem(.removeBlankLines), actionItem(.stripRichText), actionItem(.removeHTMLTags),
+                    ]),
+                    .submenu(L10n.tr("automation.action.section.format"), symbol: "arrow.left.arrow.right", [
+                        actionItem(.jsonFormat), actionItem(.jsonMinify),
+                        actionItem(.base64Encode), actionItem(.base64Decode),
+                        actionItem(.toCamelCase), actionItem(.toSnakeCase),
+                        actionItem(.toHalfWidth), actionItem(.toFullWidth), actionItem(.simplifiedToTraditional),
+                    ]),
+                    .submenu(L10n.tr("automation.action.section.lines"), symbol: "list.bullet", [
+                        actionItem(.removeDuplicateLines), actionItem(.sortLines(ascending: true)),
+                        actionItem(.joinLines(separator: " ")),
+                    ]),
+                    .submenu(L10n.tr("automation.action.section.extract"), symbol: "text.viewfinder", [
+                        actionItem(.extractVerificationCode), actionItem(.extractLinks),
+                        actionItem(.convertColor(format: ColorFormat.hex.rawValue)), actionItem(.runOCR),
                     ]),
                     .submenu(L10n.tr("automation.action.section.url"), symbol: "link", [
                         actionItem(.urlEncode), actionItem(.urlDecode), actionItem(.removeQueryParams(patterns: ["utm_*"])),
@@ -665,12 +894,17 @@ struct AutomationRuleEditorView: View {
                     .submenu(L10n.tr("automation.action.section.external"), symbol: "sparkles", [
                         actionItem(.aiTransform(prompt: "", thinking: nil, temperature: nil, timeoutSeconds: nil)), actionItem(.runShortcut(name: "")),
                     ]),
+                    .submenu(L10n.tr("automation.action.section.open"), symbol: "arrow.up.forward.square", [
+                        actionItem(.openLink), actionItem(.openInPreview), actionItem(.showInFinder),
+                        actionItem(.addToRelay), actionItem(.splitToRelay(delimiter: "\n")),
+                    ]),
                     .submenu(L10n.tr("automation.action.section.clipboard"), symbol: "tag", [
                         actionItem(.pin), actionItem(.unpin), actionItem(.markSensitive), actionItem(.unmarkSensitive),
-                        actionItem(.assignGroup(name: "")), actionItem(.skipCapture),
+                        actionItem(.assignGroup(name: "")), actionItem(.skipCapture), actionItem(.deleteItem),
                     ]),
                     .submenu(L10n.tr("automation.action.section.flow"), symbol: "flag", [
                         actionItem(.stopProcessing), actionItem(.closeQuickPanel),
+                        actionItem(.playSound(name: SoundManager.SYSTEM_SOUNDS[0].storageKey)),
                     ]),
                 ]
             }
@@ -686,6 +920,7 @@ struct AutomationRuleEditorView: View {
         switch action {
         case .assignGroup: L10n.tr("automation.action.assignGroup")
         case .runShortcut: L10n.tr("automation.action.runShortcut")
+        case .convertColor: L10n.tr("automation.action.convertColor")
         default: action.displayLabel
         }
     }
@@ -693,6 +928,15 @@ struct AutomationRuleEditorView: View {
         switch action {
         case .aiTransform: ("sparkles", .purple)
         case .runShortcut: ("square.stack.3d.up.fill", .purple)
+        case .runOCR: ("text.viewfinder", .blue)
+        case .convertColor: ("paintpalette", .blue)
+        case .openLink: ("link", .gray)
+        case .openInPreview: ("eye", .gray)
+        case .showInFinder: ("folder", .gray)
+        case .addToRelay: ("arrow.right.arrow.left", .gray)
+        case .splitToRelay: ("scissors", .gray)
+        case .deleteItem: ("trash", .red)
+        case .playSound: ("speaker.wave.2", .gray)
         default:
             switch action.kind {
             case .transform: ("textformat", .blue)
@@ -805,10 +1049,115 @@ struct AutomationRuleEditorView: View {
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
                 .help(L10n.tr("automation.action.runShortcut.openInApp"))
             }
-        
+
+
+        case .convertColor(let format):
+            Picker("", selection: Binding(
+                get: { format },
+                set: { actions[index].value = .convertColor(format: $0) }
+            )) {
+                ForEach(ColorFormat.allCases, id: \.rawValue) { f in
+                    Text(f.rawValue).tag(f.rawValue)
+                }
+            }
+            .labelsHidden()
+
+        case .splitToRelay(let delimiter):
+            delimiterPicker(delimiter, at: index)
+
+        case .sortLines(let ascending):
+            Picker("", selection: Binding(
+                get: { ascending },
+                set: { actions[index].value = .sortLines(ascending: $0) }
+            )) {
+                Text(L10n.tr("automation.action.sortLines.ascending")).tag(true)
+                Text(L10n.tr("automation.action.sortLines.descending")).tag(false)
+            }
+            .labelsHidden()
+
+        case .joinLines(let separator):
+            joinSeparatorPicker(separator, at: index)
+
+        case .playSound(let name):
+            Picker("", selection: Binding(
+                get: { name },
+                set: {
+                    actions[index].value = .playSound(name: $0)
+                    SoundManager.play(storageKey: $0)
+                }
+            )) {
+                ForEach(SoundManager.ALL_SOUNDS, id: \.storageKey) { source in
+                    Text(source.displayName).tag(source.storageKey)
+                }
+            }
+            .labelsHidden()
 
         default:
             EmptyView()
+        }
+    }
+
+    /// What goes between joined lines: space / nothing / comma / 、, or any other text.
+    private static let joinPresets: [(value: String, key: String)] = [
+        (" ", "automation.action.joinLines.space"),
+        ("", "automation.action.joinLines.none"),
+        (", ", "relay.delimiter.comma"),
+        ("、", "relay.delimiter.chineseComma"),
+    ]
+
+    @ViewBuilder
+    private func joinSeparatorPicker(_ separator: String, at index: Int) -> some View {
+        let isCustom = !Self.joinPresets.contains { $0.value == separator }
+        HStack(spacing: 8) {
+            Picker("", selection: Binding(
+                get: { isCustom ? "\u{0}custom" : separator },
+                set: { picked in
+                    actions[index].value = .joinLines(separator: picked == "\u{0}custom" ? " | " : picked)
+                }
+            )) {
+                ForEach(Self.joinPresets, id: \.value) { preset in
+                    Text(L10n.tr(preset.key)).tag(preset.value)
+                }
+                Text(L10n.tr("relay.delimiter.custom")).tag("\u{0}custom")
+            }
+            .labelsHidden()
+            if isCustom {
+                TextField("", text: Binding(
+                    get: { separator },
+                    set: { actions[index].value = .joinLines(separator: $0) }
+                ))
+                .labelsHidden()
+                .frame(width: 80)
+            }
+        }
+    }
+
+    /// Newline / comma / 、 presets, or any other text.
+    @ViewBuilder
+    private func delimiterPicker(_ delimiter: String, at index: Int) -> some View {
+        let presets = RelaySplitter.PRESET_DELIMITERS.map(\.value)
+        let isCustom = !delimiter.isEmpty && !presets.contains(delimiter)
+        HStack(spacing: 8) {
+            Picker("", selection: Binding(
+                get: { isCustom ? "\u{0}custom" : (delimiter.isEmpty ? "\n" : delimiter) },
+                set: { picked in
+                    actions[index].value = .splitToRelay(delimiter: picked == "\u{0}custom" ? "|" : picked)
+                }
+            )) {
+                ForEach(RelaySplitter.PRESET_DELIMITERS, id: \.self) { preset in
+                    Text(L10n.tr(preset.displayName)).tag(preset.value)
+                }
+                Text(L10n.tr("relay.delimiter.custom")).tag("\u{0}custom")
+            }
+            .labelsHidden()
+            if isCustom {
+                TextField("", text: Binding(
+                    get: { delimiter },
+                    set: { actions[index].value = .splitToRelay(delimiter: $0) }
+                ))
+                .labelsHidden()
+                .frame(width: 80)
+            }
         }
     }
     /// Per-action model knobs in a collapsible card. Collapsed, the header line sums up
@@ -968,6 +1317,15 @@ struct AutomationRuleEditorView: View {
     }
     @ViewBuilder
     private func readOnlyCondition(_ condition: RuleCondition) -> some View {
+        let (base, negated) = condition.unwrappedNegation
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if negated { negationBadge }
+            readOnlyBaseCondition(base)
+        }
+    }
+
+    @ViewBuilder
+    private func readOnlyBaseCondition(_ condition: RuleCondition) -> some View {
         switch condition {
         case .contentType(let type):
             LabeledContent(L10n.tr("automation.condition.contentType")) { Text(type.label) }
@@ -979,9 +1337,13 @@ struct AutomationRuleEditorView: View {
             }
         case .containsText(let text):
             LabeledContent(L10n.tr("automation.condition.containsText")) { Text(text) }
-        case .sourceApp(let bundleIDs):
+        case .sourceApp(let bundleIDs), .targetApp(let bundleIDs):
             VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.tr("automation.condition.sourceApp"))
+                if case .targetApp = condition {
+                    Text(L10n.tr("automation.condition.targetApp"))
+                } else {
+                    Text(L10n.tr("automation.condition.sourceApp"))
+                }
                 ForEach(bundleIDs, id: \.self) { bid in
                     HStack(spacing: 6) {
                         appIcon(for: bid)
@@ -989,8 +1351,45 @@ struct AutomationRuleEditorView: View {
                     }
                 }
             }
+        case .contentLength(let min, let max):
+            LabeledContent(L10n.tr("automation.condition.contentLength")) { Text(Self.rangeText(min, max)) }
+        case .lineCount(let min, let max):
+            LabeledContent(L10n.tr("automation.condition.lineCount")) { Text(Self.rangeText(min, max)) }
+        case .isPinned:
+            Text(L10n.tr("automation.condition.isPinned"))
+        case .isSensitive:
+            Text(L10n.tr("automation.condition.isSensitive"))
+        case .inGroup(let name):
+            LabeledContent(L10n.tr("automation.condition.inGroup")) {
+                Text(name.isEmpty ? L10n.tr("automation.condition.inGroup.any") : name)
+            }
+        case .timeOfDay(let start, let end):
+            LabeledContent(L10n.tr("automation.condition.timeOfDay")) {
+                Text(Self.clockText(start) + " – " + Self.clockText(end)).monospacedDigit()
+            }
+        case .weekday(let days):
+            LabeledContent(L10n.tr("automation.condition.weekday")) {
+                Text(Self.orderedWeekdays.filter(days.contains).map(Self.weekdayName).joined(separator: " "))
+            }
+        case .not:
+            // `unwrappedNegation` already peeled every `.not` off.
+            EmptyView()
         }
     }
+
+    private static func rangeText(_ min: Int?, _ max: Int?) -> String {
+        switch (min, max) {
+        case let (min?, max?): return "\(min) – \(max)"
+        case let (min?, nil): return "≥ \(min)"
+        case let (nil, max?): return "≤ \(max)"
+        case (nil, nil): return L10n.tr("automation.condition.range.any")
+        }
+    }
+
+    private static func clockText(_ minute: Int) -> String {
+        String(format: "%02d:%02d", minute / 60, minute % 60)
+    }
+
     @ViewBuilder
     private func readOnlyParameters(_ action: RuleAction) -> some View {
         switch action {
@@ -1031,15 +1430,32 @@ struct AutomationRuleEditorView: View {
             Text(name.isEmpty ? L10n.tr("automation.action.runShortcut.empty") : name)
                 .font(.callout)
                 .foregroundStyle(name.isEmpty ? .tertiary : .secondary)
+        case .convertColor(let format):
+            Text(format).font(.callout).foregroundStyle(.secondary)
+        case .splitToRelay(let delimiter):
+            let preset = RelaySplitter.PRESET_DELIMITERS.first { $0.value == (delimiter.isEmpty ? "\n" : delimiter) }
+            Text(preset.map { L10n.tr($0.displayName) } ?? "“\(delimiter)”")
+                .font(.callout).foregroundStyle(.secondary)
+        case .playSound(let name):
+            Text(SoundManager.SoundSource.from(storageKey: name).displayName)
+                .font(.callout).foregroundStyle(.secondary)
+        case .sortLines(let ascending):
+            Text(L10n.tr(ascending ? "automation.action.sortLines.ascending" : "automation.action.sortLines.descending"))
+                .font(.callout).foregroundStyle(.secondary)
+        case .joinLines(let separator):
+            let preset = Self.joinPresets.first { $0.value == separator }
+            Text(preset.map { L10n.tr($0.key) } ?? "“\(separator)”")
+                .font(.callout).foregroundStyle(.secondary)
         default:
             EmptyView()
         }
     }
-    /// Synchronous transforms only. Source-app conditions are skipped — typed text has
-    /// no source app, and failing on that would only ever say "not matched".
+    /// Synchronous transforms only. Conditions about the stored clip or the paste target
+    /// are skipped — typed text has neither, and failing on that would only ever say
+    /// "not matched".
     private var previewOutput: String {
         let type = ClipboardManager.shared.detectContentType(previewInput).type
-        let checked = conditions.map(\.value).filter { if case .sourceApp = $0 { return false }; return true }
+        let checked = conditions.map(\.value).filter { !$0.needsClipContext }
         let matched = checked.isEmpty || AutomationEngine.matchesConditions(
             checked, logic: draftLogic, content: previewInput, contentType: type, sourceApp: nil
         )
@@ -1071,8 +1487,11 @@ struct AutomationRuleEditorView: View {
         }
     }
 
+    /// Enabling needs conditions plus something to do: an action, or an output that
+    /// goes somewhere (save to folder / webhook) on its own.
     private func validateRule() -> Bool {
-        guard !conditions.isEmpty, !actions.isEmpty else {
+        let hasWork = !rule.actions.isEmpty || rule.outputMode.needsParameter
+        guard !rule.conditions.isEmpty, hasWork else {
             let alert = NSAlert()
             alert.messageText = L10n.tr("automation.validation.incomplete")
             alert.informativeText = L10n.tr("automation.validation.incompleteMessage")
@@ -1080,6 +1499,23 @@ struct AutomationRuleEditorView: View {
             return false
         }
         return true
+    }
+
+    /// A folder that exists / an http(s) URL, before the draft is saved.
+    private func validateOutput() -> Bool {
+        let message: String
+        switch draftOutput {
+        case .saveToFile where RuleOutputDelivery.folderURL(from: draftOutputParam) == nil:
+            message = L10n.tr("automation.output.folder.invalid")
+        case .postWebhook where RuleOutputDelivery.webhookURL(from: draftOutputParam) == nil:
+            message = L10n.tr("automation.output.webhook.invalidURL")
+        default:
+            return true
+        }
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.runModal()
+        return false
     }
 
     private func appIcon(for bundleID: String) -> some View {
@@ -1099,7 +1535,7 @@ struct AutomationRuleEditorView: View {
         return bundleID
     }
 
-    private func browseForApp(at index: Int, existing: [String]) {
+    private func browseForApp(existing: [String], set: ([String]) -> Void) {
         let panel = NSOpenPanel()
         panel.title = L10n.tr("automation.condition.sourceApp.select")
         panel.allowedContentTypes = [.application]
@@ -1113,7 +1549,7 @@ struct AutomationRuleEditorView: View {
                 ids.append(bid)
             }
         }
-        conditions[index].value = .sourceApp(bundleIDs: ids)
+        set(ids)
     }
 }
 

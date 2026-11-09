@@ -141,7 +141,6 @@
 "settings.quickPanelTabTypes" = "Kategori di bilah tab";
 "settings.quickPanelTabTypes.hint" = "Seret untuk mengurutkan. Hapus centang untuk menyembunyikan tab di panel cepat; bilah sisi tidak berubah.";
 "settings.quickPanelTabTypes.reset" = "Atur ulang";
-"settings.history" = "Riwayat";
 "settings.retentionDays" = "Simpan Riwayat";
 "settings.retentionDays.forever" = "Selamanya";
 "settings.retentionDays.days" = "%d hari";
@@ -214,6 +213,7 @@
 "detail.fileCount" = "File";
 "detail.fileStatus" = "Status";
 "file.unavailable.missing" = "File tidak ada lagi";
+"finder.notResponding" = "Finder tidak merespons";
 "file.unavailable.denied" = "Tidak ada izin akses";
 "detail.host" = "Host";
 "detail.url" = "URL";
@@ -395,6 +395,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "Data";
+"dataPorter.importExport" = "Impor & Ekspor";
 "dataPorter.export" = "Ekspor Data";
 "dataPorter.compressing" = "Mengompresi...";
 "dataPorter.import" = "Impor Data";
@@ -502,7 +503,6 @@
 
 "filter.sensitive" = "Sensitif";
 
-"settings.clearData" = "Hapus Semua Data";
 
 "settings.sound" = "Suara";
 "settings.sound.enabled" = "Efek suara";
@@ -677,12 +677,6 @@ Gunakan %@ untuk menempel satu per satu.";
 "help.relay.exit" = "Tombol Tutup atau Esc untuk keluar dari mode relay";
 
 /* Missing Keys - Clear Data */
-"settings.clearData.1month" = "Lebih dari 1 bulan";
-"settings.clearData.3months" = "Lebih dari 3 bulan";
-"settings.clearData.6months" = "Lebih dari 6 bulan";
-"settings.clearData.1year" = "Lebih dari 1 tahun";
-"settings.clearData.all" = "Hapus semua";
-"settings.clearData.result" = "%d item dihapus";
 
 /* Missing Keys - Backup */
 "backup.nextBackup" = "Cadangan berikutnya";
@@ -720,7 +714,7 @@ Gunakan %@ untuk menempel satu per satu.";
 "automation.rule.triggerMode" = "Pemicu";
 "automation.rule.triggerMode.automatic" = "Otomatis";
 "automation.rule.triggerMode.manual" = "Hanya manual";
-"automation.rule.triggerMode.shortcutManualOnly" = "Aturan dengan “Jalankan Pintasan”, “Tulis ulang AI”, atau “Tutup Panel Cepat” hanya berjalan dengan pemicu manual";
+"automation.rule.triggerMode.shortcutManualOnly" = "Berisi aksi yang hanya berjalan manual, jadi hanya bisa dipicu manual";
 "automation.rule.outputMode" = "Hasil ke";
 "automation.rule.outputMode.replaceItem" = "Ganti item ini";
 "automation.rule.outputMode.newItem" = "Item baru";
@@ -1123,3 +1117,134 @@ Gunakan %@ untuk menempel satu per satu.";
 "stats.runtime.memory.hint" = "Physical memory footprint";
 "stats.runtime.monitoring" = "Live";
 "stats.runtime.title" = "Runtime Resources";
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "Ubah format warna";
+"automation.action.extractVerificationCode" = "Simpan kode verifikasi saja";
+"automation.action.extractLinks" = "Simpan tautan saja";
+"automation.action.runOCR" = "Kenali teks di gambar";
+"automation.action.deleteItem" = "Hapus item asli";
+"automation.action.playSound" = "Putar suara";
+"automation.action.section.extract" = "Ekstrak & Kenali";
+"automation.action.section.open" = "Buka & Relay";
+"automation.rule.outputMode.saveToFile" = "Simpan ke folder";
+"automation.rule.outputMode.postWebhook" = "Kirim ke webhook";
+"automation.output.folder.empty" = "Belum ada folder";
+"automation.output.folder.choose" = "Pilih…";
+"automation.output.folder.invalid" = "Folder tidak ditemukan";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "Mengirim JSON (content, contentType, sourceApp, rule, createdAt). Item sensitif tidak pernah dikirim.";
+"automation.output.webhook.invalidURL" = "Alamat harus diawali http:// atau https://";
+"automation.output.webhook.tooLarge" = "Terlalu panjang, tidak dikirim";
+"automation.output.webhook.failedStatus" = "Gagal mengirim (HTTP %d)";
+"automation.output.webhook.failed" = "Gagal mengirim: %@";
+"automation.output.webhook.sent" = "Terkirim";
+"automation.output.webhook.refused" = "Item sensitif tidak dikirim";
+"automation.output.webhook.textOnly" = "Hanya teks yang bisa dikirim";
+"automation.output.saved" = "Disimpan ke “%@”";
+"automation.output.saveFailed" = "Gagal menyimpan. Periksa apakah folder masih ada.";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Enkode Base64";
+"automation.action.base64Decode" = "Dekode Base64";
+"automation.action.jsonFormat" = "Rapikan JSON";
+"automation.action.jsonMinify" = "Ringkas JSON";
+"automation.action.toCamelCase" = "Ubah ke camelCase";
+"automation.action.toSnakeCase" = "Ubah ke snake_case";
+"automation.action.toHalfWidth" = "Lebar penuh ke setengah";
+"automation.action.toFullWidth" = "Setengah lebar ke penuh";
+"automation.action.simplifiedToTraditional" = "Mandarin Sederhana ke Tradisional";
+"automation.action.removeDuplicateLines" = "Hapus baris duplikat";
+"automation.action.sortLines" = "Urutkan baris";
+"automation.action.sortLines.ascending" = "Naik";
+"automation.action.sortLines.descending" = "Turun";
+"automation.action.joinLines" = "Gabungkan baris";
+"automation.action.joinLines.space" = "Spasi";
+"automation.action.joinLines.none" = "Tanpa pemisah";
+"automation.action.removeHTMLTags" = "Hapus tag HTML";
+"automation.action.section.format" = "Konversi";
+"automation.action.section.lines" = "Baris";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "Konten";
+"automation.condition.section.app" = "Aplikasi";
+"automation.condition.section.state" = "Status item";
+"automation.condition.section.time" = "Waktu";
+"automation.condition.targetApp" = "Tempel ke";
+"automation.condition.targetApp.help" = "Hanya diketahui di Panel Cepat dan saat tempel relay. Aturan yang terpicu saat menyalin tidak pernah memenuhinya.";
+"automation.condition.contentLength" = "Jumlah karakter";
+"automation.condition.lineCount" = "Jumlah baris";
+"automation.condition.range.min" = "Min";
+"automation.condition.range.max" = "Maks";
+"automation.condition.range.any" = "Bebas";
+"automation.condition.isPinned" = "Disematkan";
+"automation.condition.isSensitive" = "Ditandai sensitif";
+"automation.condition.inGroup" = "Grup adalah";
+"automation.condition.inGroup.any" = "Grup mana pun";
+"automation.condition.timeOfDay" = "Jam";
+"automation.condition.weekday" = "Hari";
+"automation.condition.negated" = "Tidak terpenuhi";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "Simpan item sensitif";
+"settings.privacy.sensitiveRetention.followHistory" = "Sama seperti riwayat";
+"settings.privacy.sensitiveRetention.minutes" = "%d menit";
+"settings.privacy.sensitiveRetention.hours" = "%d jam";
+"settings.privacy.sensitiveRetention.hint" = "Dihitung sejak salin atau tempel terakhir, lalu dihapus. Item yang disematkan dan item di grup simpan permanen tetap ada.";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "%d item sensitif akan dihapus";
+
+/* Storage */
+"settings.storage" = "Penyimpanan";
+"storage.manage.title" = "Kelola Penyimpanan";
+"storage.manage" = "Kelola";
+"storage.recordCount" = "%@ item";
+"storage.scanFailed" = "Tidak dapat membaca data";
+"storage.scanning" = "Menghitung...";
+"storage.part.originals" = "Asli";
+"storage.part.previews" = "Thumbnail";
+"storage.part.richText" = "Teks kaya";
+"storage.byType" = "Menurut Jenis";
+"storage.itemCount" = "%@ item";
+"storage.autoClean" = "Pembersihan Otomatis";
+"storage.optimize" = "Optimalkan";
+"storage.tiff.title" = "Ubah TIFF asli ke PNG (tanpa kehilangan kualitas)";
+"storage.tiff.detail" = "%1$@ gambar · %2$@";
+"storage.tiff.progress" = "Mengubah %1$@ dari %2$@";
+"storage.tiff.result" = "%1$@ gambar diubah, hemat %2$@";
+"storage.tiff.kept" = "%@ gambar tidak bisa diubah tanpa kehilangan kualitas dan tetap TIFF";
+"storage.sourceCount" = "%@ sumber";
+"storage.grouping.source" = "Menurut Sumber";
+"storage.typeCount" = "%@ jenis";
+"storage.column.type" = "Jenis";
+"storage.typeSelectionSummary" = "%1$@ jenis dipilih · %2$@ item · %3$@";
+"storage.searchSources" = "Cari sumber";
+"storage.allSources" = "Semua Sumber";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "Sumber";
+"storage.column.latest" = "Terakhir disalin";
+"storage.column.count" = "Item";
+"storage.column.size" = "Ukuran";
+"storage.protectedNote" = "Yang dihapus adalah item di PasteMemo, bukan file asli Anda. Item yang disematkan dan item di grup permanen tidak pernah dihapus.";
+"storage.protectedExcluded" = "Tidak termasuk %@ item yang disematkan atau di grup permanen";
+"storage.deleteRecords" = "Hapus Item";
+"storage.delete.scope" = "Hanya item PasteMemo dan salinan yang disimpannya yang dihapus; file asli Anda tidak tersentuh. Tindakan ini tidak dapat dibatalkan.";
+"storage.selectionSummary" = "%1$@ sumber dipilih · %2$@ item · %3$@";
+"storage.delete.confirm" = "Hapus %@ item?";
+"storage.deleting" = "Menghapus...";
+"storage.empty" = "Tidak ada yang perlu dibersihkan";
+"storage.time.all" = "Semua Waktu";
+"storage.time.1month" = "Lebih dari 1 bulan";
+"storage.time.3months" = "Lebih dari 3 bulan";
+"storage.time.6months" = "Lebih dari 6 bulan";
+"storage.time.1year" = "Lebih dari 1 tahun";
+"storage.time.custom" = "Rentang Khusus...";
+"storage.type.all" = "Semua Jenis";
+"storage.listSeparator" = ", ";
+"storage.sort.size" = "Terbesar Dulu";
+"storage.sort.latest" = "Terbaru";
+"storage.selectAll" = "Pilih Semua";
+"storage.deselectAll" = "Batalkan Pilihan";
+"storage.itemSelectionSummary" = "%1$@ dipilih · %2$@";
+"storage.custom.title" = "Rentang Khusus";
+"storage.custom.from" = "Dari";
+"storage.custom.to" = "Sampai";

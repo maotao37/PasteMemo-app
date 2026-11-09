@@ -184,6 +184,11 @@ struct QuickPanelView: View {
     @AppStorage(QuickPanelSettings.imageLayoutKey) private var imageLayoutRaw = QuickPanelImageLayout.list.rawValue
     @AppStorage(QuickPanelSettings.hiddenTabTypesKey) private var hiddenTabTypesRaw = ""
     @AppStorage(QuickPanelSettings.imageGridDensityKey) private var imageGridDensityRaw = QuickPanelImageGridDensity.medium.rawValue
+    @AppStorage(QuickPanelSettings.previewFontSizeKey) private var previewFontSizeStored = QuickPanelPreviewFontSize.defaultPoints
+    /// 正在改文字的条目（⌘E / 右键 / ⌘K「编辑」进入）。非 nil 时搜索栏和列表换成编辑框，
+    /// 按键监听只拦 Esc / ⌘↩ / ⌘S / ⌘W，其余全交给编辑框。读它一律走 `activeEditingItem`。
+    @State private var editingItem: ClipItem?
+    @State private var editingContent = ""
 
     private var secondaryRow: QuickPanelSecondaryRow {
         QuickPanelSecondaryRow(rawValue: quickPanelSecondaryRowRaw) ?? .types
@@ -295,6 +300,8 @@ struct QuickPanelView: View {
     }
 
     private func handleItemClick(_ id: PersistentIdentifier) {
+        // 编辑时列表藏在编辑框底下，万一有点击漏下去也不响应
+        guard editingItem == nil else { return }
         userInteractedSinceShow = true
         // 鼠标点选图片 = 直接进入网格焦点级，后续方向键在图片间移动
         if isImageGridActive { isGridFocused = true }
@@ -424,6 +431,10 @@ struct QuickPanelView: View {
     @ViewBuilder
     private var panelContent: some View {
         VStack(spacing: 0) {
+            ZStack {
+            // 编辑时列表只藏不拆：拆掉再建会丢滚动位置，退出编辑时列表从顶部重来、
+            // 再只滚到「选中行刚好可见」，看着像条目跳了位置。
+            VStack(spacing: 0) {
             searchBar
             // 标签条排除背景拖拽：否则点分类标签时窗口跟着微拖「晃动」
             if shouldShowTabBar {
@@ -454,6 +465,18 @@ struct QuickPanelView: View {
                     }
                 }
             }
+            }
+            .opacity(activeEditingItem == nil ? 1 : 0)
+            .allowsHitTesting(activeEditingItem == nil)
+            .accessibilityHidden(activeEditingItem != nil)
+
+            if let editing = activeEditingItem {
+                VStack(spacing: 0) {
+                    editHeader
+                    editorBody(for: editing)
+                }
+            }
+            } // ZStack: list / editor
             footerBar
         }
         .sheet(item: $saveAsTemplateDraft) { draft in
@@ -464,7 +487,8 @@ struct QuickPanelView: View {
 
     @ViewBuilder
     private var suggestionsOverlay: some View {
-        if isShowingSuggestions {
+        // Floating group suggestions overlay; never while a row is being edited.
+        if isShowingSuggestions, activeEditingItem == nil {
             VStack(spacing: 0) {
                 Spacer().frame(height: 48)
                 HStack {
@@ -519,10 +543,15 @@ struct QuickPanelView: View {
         userTypedSlash = false
         isIMEComposing = false
         isPreviewEditing = false
+        // 编辑中被关掉（点外面 / ⌘W / 热键）= 放弃这次修改
+        editingItem = nil
+        editingContent = ""
     }
 
     private func handleQuickPanelDidShow() {
         showCommandPalette = false
+        editingItem = nil
+        editingContent = ""
         searchText = ""
         pill = nil
         let restoredFilter = restoredFilterOnShow()
@@ -1434,6 +1463,9 @@ struct QuickPanelView: View {
                 handleItemClick(id)
             },
             onItemRightClick: { id in
+                // 行上的右键靠全局事件监听（不走 SwiftUI 命中测试）：编辑框里右键也会落到
+                // 藏在底下的那一行，不拦就会改选中、带着列表滚动
+                guard editingItem == nil else { return }
                 if !selectedItemIDs.contains(id) {
                     selectedItemIDs = [id]
                     lastNavigatedID = id
@@ -1510,7 +1542,7 @@ struct QuickPanelView: View {
                 CommandPaletteContent(
                     item: item,
                     isMultiSelected: isMultiSelected,
-                    manualRules: manualRulesForPalette(item: item),
+                    manualRules: manualRulesForPalette(items: [item]),
                     preservedGroupNames: SmartGroupRetention.preservedGroupNames(in: modelContext),
                     onAction: { handleCommandAction($0) },
                     onDismiss: { showCommandPalette = false; isSearchFocused = true }
@@ -1592,14 +1624,14 @@ struct QuickPanelView: View {
     /// 没有预览区、菜单必然整个落在窗口外，宽窗口下菜单也可能比预览区宽。
     private func syncCommandPalettePanel() {
         guard showCommandPalette,
-              let item = currentItem,
+              currentItem != nil || isMultiSelected,
               let window = QuickPanelWindowController.shared.panelWindow,
               CommandPalettePanel.shared.anchorRow != .zero else {
             CommandPalettePanel.shared.hide()
             return
         }
         CommandPalettePanel.shared.show(
-            content: paletteCard(for: item),
+            content: paletteCard(),
             width: PALETTE_WIDTH,
             maxHeight: PALETTE_MAX_HEIGHT,
             parent: window,
@@ -1613,16 +1645,23 @@ struct QuickPanelView: View {
     /// 菜单卡片本体。这里不能加 .shadow：套在玻璃上会让整块卡片退化成实色。投影由
     /// CommandPalettePanel 在另一个透明子窗口里画（见其类注释）。
     @ViewBuilder
-    private func paletteCard(for item: ClipItem) -> some View {
+    private func paletteCard() -> some View {
         // ScrollView 已挪进 CommandPaletteContent（要和 selectedIndex 同处一个 view
         // 才能让键盘焦点带着滚动条走），这里只负责限宽限高。
+        let selection = isMultiSelected ? currentItems : []
         let card = CommandPaletteContent(
-            item: item,
+            item: currentItem,
             isMultiSelected: isMultiSelected,
-            manualRules: manualRulesForPalette(item: item),
+            selection: selection,
+            manualRules: manualRulesForPalette(items: isMultiSelected ? selection : currentItem.map { [$0] } ?? []),
             preservedGroupNames: SmartGroupRetention.preservedGroupNames(in: modelContext),
+            canEdit: !isPanelPinned,
             onAction: { handleCommandAction($0) },
-            onDismiss: { showCommandPalette = false; isSearchFocused = true },
+            // 卡片在执行动作之后才调 onDismiss：刚从「编辑」进了编辑框，就别再把焦点抢回搜索框
+            onDismiss: {
+                showCommandPalette = false
+                if editingItem == nil { isSearchFocused = true }
+            },
             embedded: true
         )
         .frame(width: PALETTE_WIDTH)
@@ -1703,14 +1742,162 @@ struct QuickPanelView: View {
         }
     }
 
+    // MARK: - Edit
+
+    /// 编辑中、且条目还在。条目编辑途中被删（主窗口删除 / 自动清理）时返回 nil，界面退回列表
+    /// ——已删条目读外部存储属性会崩，视图里不能直接拿 `editingItem` 用。
+    private var activeEditingItem: ClipItem? {
+        guard let editingItem, !editingItem.isGone else { return nil }
+        return editingItem
+    }
+
+    /// 置顶时面板拒绝成为 key（见 `QuickPanelWindowController.isPinned`），编辑框打不了字，
+    /// 所以置顶状态下不放出编辑入口。多选不用在这里拦：⌘E / ⌘K 取的 `currentItem` 多选时
+    /// 本来就是 nil，右键菜单则由 `beginEdit` 把被点的那行选成单选。
+    private func canEdit(_ item: ClipItem) -> Bool {
+        !isPanelPinned && item.isEditableText
+    }
+
+    private func beginEdit(_ item: ClipItem) {
+        guard canEdit(item) else { return }
+        showCommandPalette = false
+        // 右键的可能不是当前选中行；选中它，保存后粘贴走的才是这一条
+        selectItem(item.persistentModelID)
+        editingContent = item.content
+        editingItem = item
+        isSearchFocused = false
+    }
+
+    private func endEdit(refocusSearch: Bool) {
+        editingItem = nil
+        editingContent = ""
+        guard refocusSearch else { return }
+        // 搜索框这一帧才重新插回视图树，下一拍再给焦点
+        Task { @MainActor in isSearchFocused = true }
+    }
+
+    /// 保存改动；`thenPaste` 时接着走和回车一样的粘贴（自动粘贴关了就是复制、目标是访达
+    /// 就存进文件夹）。内容没改时 `applyEditedContent` 什么都不做，粘出去的仍是原格式。
+    private func commitEdit(thenPaste: Bool) {
+        guard let item = editingItem else { return }
+        guard !item.isGone else {
+            endEdit(refocusSearch: true)
+            return
+        }
+        guard !editingContent.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        clipboardManager.applyEditedContent(editingContent, to: item, context: modelContext)
+        endEdit(refocusSearch: !thenPaste)
+        guard thenPaste else { return }
+        selectItem(item.persistentModelID)
+        if currentItem === item {
+            handlePaste()
+        } else if quickPanelAutoPaste {
+            // 列表在编辑途中刷新、把这条挤出了已加载的页：直接粘这一条
+            QuickPanelWindowController.shared.dismissAndPaste(item, clipboardManager: clipboardManager)
+        } else {
+            copyItemToClipboardAndDismiss(item)
+        }
+    }
+
+    /// 编辑时只拦这几个键，其余（方向键、回车换行、⌘C / ⌘V / ⌘Z、⌘⌫…）全部放给编辑框。
+    /// 输入法组字时一个都不拦：回车选字、Esc 取消组字归输入法。
+    private func handleEditingKeyDown(_ event: NSEvent) -> NSEvent? {
+        if let textView = event.window?.firstResponder as? NSTextView, textView.hasMarkedText() {
+            return event
+        }
+        let flags = event.modifierFlags
+        let cmdOnly = flags.contains(.command)
+            && !flags.contains(.shift) && !flags.contains(.option) && !flags.contains(.control)
+        switch Int(event.keyCode) {
+        case 53: // Esc
+            endEdit(refocusSearch: true)
+            return nil
+        case 36 where cmdOnly, 76 where cmdOnly: // ⌘↩（含小键盘 Enter）；where 只管它前面那一个模式，两个都要写
+            commitEdit(thenPaste: true)
+            return nil
+        case 1 where cmdOnly: // ⌘S
+            commitEdit(thenPaste: false)
+            return nil
+        case 13 where cmdOnly: // ⌘W
+            handleDismiss()
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// 和搜索栏同高同边距，进出编辑时下面的内容不跳。
+    private var editHeader: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "pencil")
+                .font(.system(size: 18))
+                .foregroundStyle(.tertiary)
+                .frame(width: 22, height: 22)
+            Text(L10n.tr("action.edit"))
+                .font(.system(size: 16))
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(height: 28)
+        .padding(.horizontal, 20)
+        .padding(.top, 22)
+        .padding(.bottom, 14)
+    }
+
+    private func editorBody(for item: ClipItem) -> some View {
+        ClipTextEditor(
+            hasRichText: item.richTextData != nil,
+            text: editingContent,
+            fontSize: QuickPanelPreviewFontSize.resolvedPoints(previewFontSizeStored),
+            onTextChange: { editingContent = $0 },
+            onEscape: { endEdit(refocusSearch: true) }
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 换条目时换一个全新的编辑框，撤销记录和光标不串
+        .id(item.persistentModelID)
+    }
+
+    /// 编辑时底栏只剩这三个，且都能点：从右键菜单进来的人手在鼠标上。
+    @ViewBuilder
+    private func editingFooterKeys(for item: ClipItem) -> some View {
+        Button { commitEdit(thenPaste: true) } label: {
+            footerKey("⌘↵", primaryFooterLabel(for: item))
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverHighlight())
+        .pointerCursor()
+        .disabled(editingContent.isEmpty)
+
+        Button { commitEdit(thenPaste: false) } label: {
+            footerKey("⌘S", L10n.tr("action.save"))
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverHighlight())
+        .pointerCursor()
+        .disabled(editingContent.isEmpty)
+
+        Button { endEdit(refocusSearch: true) } label: {
+            footerKey("esc", L10n.tr("action.cancel"))
+        }
+        .buttonStyle(.plain)
+        .modifier(HoverHighlight())
+        .pointerCursor()
+    }
+
     private var footerBar: some View {
         VStack(spacing: 8) {
             // Expandable shortcuts panel
-            if showAllShortcuts {
+            if showAllShortcuts, activeEditingItem == nil {
                 WrappingHStack(spacing: 12, lineSpacing: 6, alignment: .trailing) {
                     footerKey("←→", L10n.tr("quick.switchType"))
                     footerKey("↑↓", L10n.tr("quick.navigate"))
                     footerKey("⌘O", cmdOFooterLabel)
+                    footerKey("⌘E", L10n.tr("action.edit"))
                     footerKey("⌘T", isPanelPinned ? L10n.tr("quickPanel.unpin") : L10n.tr("quickPanel.pin"))
                     if !HotkeyManager.shared.isManagerCleared {
                         footerKey(
@@ -1762,6 +1949,9 @@ struct QuickPanelView: View {
                     // 没有背景条和分隔线。
                     HStack(spacing: 10) {
                         let compact = !layoutState.shouldShowPreview
+                        if let editing = activeEditingItem {
+                            editingFooterKeys(for: editing)
+                        } else {
                         if isMultiSelected {
                             footerKey("↵", quickPanelAutoPaste ? (isTargetFinder ? L10n.tr("quick.saveToFolder") : L10n.tr("quick.batchPaste")) : L10n.tr("action.copy"))
                             if !compact, quickPanelAutoPaste, !isTargetFinder {
@@ -1827,6 +2017,7 @@ struct QuickPanelView: View {
                         }
                         .modifier(GlassIconButton())
                         .pointerCursor()
+                        } // editing
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -1910,6 +2101,7 @@ struct QuickPanelView: View {
 
     /// 历史条目行右键原生菜单（基于 AppKit NSMenu）
     private func historyItemMenuItems(item: ClipItem) -> [NativeMenuItem] {
+        guard editingItem == nil else { return [] }
         let itemID = item.persistentModelID
         var menu: [NativeMenuItem] = []
 
@@ -1950,11 +2142,8 @@ struct QuickPanelView: View {
                 saveAsTemplateDraft = SaveAsTemplateDraft(sourceItem: item)
             })
         }
-        if layoutState.shouldShowPreview,
-           item.contentType == .text || item.contentType == .code {
-            menu.append(.item(L10n.tr("action.edit")) {
-                beginPreviewEditing(item)
-            })
+        if canEdit(item) {
+            menu.append(.item(L10n.tr("action.edit")) { beginEdit(item) })
         }
         menu.append(.item(item.isPinned ? L10n.tr("action.unpin") : L10n.tr("action.pin")) {
             ActionExecutor.applyMetadata([item.isPinned ? .unpin : .pin], to: [item], context: modelContext)
@@ -1966,7 +2155,7 @@ struct QuickPanelView: View {
         })
         if ProManager.AUTOMATION_ENABLED {
             let manualRules = fetchEnabledRules()
-                .filter { $0.triggerMode == .manual && $0.matches(item: item) }
+                .filter { $0.triggerMode == .manual && $0.matches(item: item, targetAppBundleID: pasteTargetBundleID) }
             if !manualRules.isEmpty {
                 menu.append(.separator)
                 menu.append(.submenu(L10n.tr("cmd.automation"), manualRules.map { rule in
@@ -1997,22 +2186,6 @@ struct QuickPanelView: View {
     }
 
     // MARK: - Actions
-
-    private func beginPreviewEditing(_ item: ClipItem) {
-        let itemID = item.persistentModelID
-        let selectionChanged = selectedItemIDs != Set([itemID])
-        selectItem(itemID)
-        if selectionChanged {
-            // `onChange(of: selectedItemIDs)` cancels any editor owned by the old row.
-            // Enter the new row's editor on the next state-update cycle.
-            DispatchQueue.main.async {
-                guard currentItem?.persistentModelID == itemID else { return }
-                isPreviewEditing = true
-            }
-        } else {
-            isPreviewEditing = true
-        }
-    }
 
     private func moveSelection(_ delta: Int, extendSelection: Bool = false) {
         var items = displayOrderItems
@@ -2083,6 +2256,15 @@ struct QuickPanelView: View {
             let hasControl = event.modifierFlags.contains(.control)
             let hasOption = event.modifierFlags.contains(.option)
 
+            if let editing = editingItem {
+                // 条目在编辑途中被删了（主窗口 / 自动清理）：退出编辑，这个键照常处理
+                if editing.isGone {
+                    endEdit(refocusSearch: true)
+                } else {
+                    return handleEditingKeyDown(event)
+                }
+            }
+
             if showCommandPalette {
                 // NSPopover 内的键盘监听偶发收不到字母键，这里只对高频字母快捷键做一层兜底，
                 // 用最小改动修复「⌘K 后按 P 无反应」。
@@ -2113,6 +2295,10 @@ struct QuickPanelView: View {
                         handleCommandAction(.cmdEnter(
                             label: cmdEnterPaletteLabel(for: item), hasKey: true
                         ))
+                        return nil
+                    }
+                    if isMultiSelected {
+                        handleCommandAction(.cmdEnter(label: L10n.tr("cmd.pasteAsPlainText"), hasKey: true))
                         return nil
                     }
                     return event
@@ -2237,6 +2423,12 @@ struct QuickPanelView: View {
                         // 网格模式下命令面板锚在焦点格上，标签级时先落焦到当前选中图
                         if isImageGridActive { isGridFocused = true }
                     }
+                    return nil
+                }
+                return event
+            case 14: // Cmd+E — 编辑当前条目
+                if hasCmd, !hasShift, !hasControl {
+                    if let item = currentItem, canEdit(item) { beginEdit(item) }
                     return nil
                 }
                 return event
@@ -2466,7 +2658,11 @@ struct QuickPanelView: View {
         }
         switch action {
         case .paste:
-            handlePaste(respectAutoPaste: false)
+            if isMultiSelected {
+                handleMultiPaste(asPlainText: false, respectAutoPaste: false)
+            } else {
+                handlePaste(respectAutoPaste: false)
+            }
         case .pasteAndDestroy:
             break  // handled above
         case .cmdEnter:
@@ -2533,6 +2729,17 @@ struct QuickPanelView: View {
                     dismissAndRevealInFinder(path)
                 }
             }
+        case .edit:
+            if let item = currentItem, canEdit(item) { beginEdit(item) }
+        case .merge:
+            if isMultiSelected, let merged = ClipMerge.merge(currentItems, in: modelContext) {
+                // Load the new clip into the list before selecting it. The regular refresh
+                // lands a beat later, and in between the list (minus the merged-away clips)
+                // doesn't hold it — onChange(of: store.items) would move the selection to the
+                // first row instead.
+                ClipItemStore.refreshAllStoresNow()
+                selectItem(merged.persistentModelID)
+            }
         case .delete:
             handleDeleteSelected()
         case .runRule(let ruleID, _):
@@ -2547,17 +2754,27 @@ struct QuickPanelView: View {
         }
     }
 
+    /// The app the panel was opened from — what "paste target is …" rule
+    /// conditions compare against.
+    private var pasteTargetBundleID: String? {
+        QuickPanelWindowController.shared.previousApp?.bundleIdentifier
+    }
+
     /// Manual-trigger rules visible in the ⌘K palette for this clip. Capped
     /// at 5 so a rule-heavy setup doesn't drown out built-in actions.
-    private func manualRulesForPalette(item: ClipItem) -> [AutomationRule] {
-        guard ProManager.AUTOMATION_ENABLED else { return [] }
+    /// For several clips: rules that match every one of them, minus async ones (Shortcuts /
+    /// AI / OCR) — those only ever run on the first clip.
+    private func manualRulesForPalette(items: [ClipItem]) -> [AutomationRule] {
+        guard ProManager.AUTOMATION_ENABLED, !items.isEmpty else { return [] }
         let descriptor = FetchDescriptor<AutomationRule>(
             predicate: #Predicate { $0.enabled },
             sortBy: [SortDescriptor(\.sortOrder)]
         )
         let enabled = (try? modelContext.fetch(descriptor)) ?? []
-        let filtered = enabled.filter {
-            $0.triggerMode == .manual && $0.matches(item: item)
+        let filtered = enabled.filter { rule in
+            rule.triggerMode == .manual
+                && items.allSatisfy { rule.matches(item: $0, targetAppBundleID: pasteTargetBundleID) }
+                && (items.count == 1 || !rule.actions.contains(where: \.isAsync))
         }
         return Array(filtered.prefix(5))
     }
@@ -2694,11 +2911,10 @@ struct QuickPanelView: View {
         let textItems = items.filter { !isFileBasedItem($0) && $0.content != "[Image]" }
         let imageItems = items.filter { isPureImage($0) }
 
-        guard let folder = clipboardManager.getFinderSelectedFolder() else {
+        guard let folder = finderSelectedFolder(fallback: {
             // Fallback: paste as files if possible
             dismissAndRestoreApp { app in clipboardManager.pasteMultiple(items, targetApp: app) }
-            return
-        }
+        }) else { return }
 
         // Save pure images to folder — write the verbatim original, never the thumbnail.
         for img in imageItems {
@@ -3025,6 +3241,27 @@ struct QuickPanelView: View {
             && !QuickPanelWindowController.shared.previousFocusIsTextInput
     }
 
+    /// 访达当前文件夹。访达没响应时提示并返回 nil（面板留着，用户可以再按一次）；
+    /// 其他拿不到的情况（拒绝了控制访达等）交给 `fallback`。
+    private func finderSelectedFolder(fallback: () -> Void = {}) -> URL? {
+        let lookup = clipboardManager.getFinderSelectedFolder(beforeConsentPrompt: {
+            // 面板在 .statusBar 层级，会盖住系统授权框；置顶也收，焦点交还访达。
+            QuickPanelWindowController.shared.dismiss(force: true)
+        })
+        switch lookup {
+        case .folder(let url):
+            return url
+        case .consentNotGranted:
+            return nil
+        case .notResponding:
+            ToastCenter.shared.show(ToastDescriptor(message: L10n.tr("finder.notResponding"), icon: .info))
+            return nil
+        case .unavailable:
+            fallback()
+            return nil
+        }
+    }
+
     private var canSaveAttachmentToFolder: Bool {
         guard let item = currentItem,
               item.pasteableImageData != nil,
@@ -3180,7 +3417,7 @@ struct QuickPanelView: View {
     private func handlePasteTextToFolder() {
         guard let item = currentItem else { return }
 
-        guard let folder = clipboardManager.getFinderSelectedFolder() else { return }
+        guard let folder = finderSelectedFolder() else { return }
 
         let ext = item.resolvedFileExtension
         guard let savedURL = clipboardManager.saveTextToFolder(item.content, folder: folder, fileExtension: ext) else { return }
@@ -3204,7 +3441,7 @@ struct QuickPanelView: View {
 
     private func handlePasteLinkToFolder() {
         guard let item = currentItem, item.contentType == .link else { return }
-        guard let folder = clipboardManager.getFinderSelectedFolder() else { return }
+        guard let folder = finderSelectedFolder() else { return }
 
         let content = item.content.trimmingCharacters(in: .whitespacesAndNewlines)
         let linkTitle = item.linkTitle
@@ -3390,29 +3627,38 @@ struct QuickPanelView: View {
             return
         }
 
-        guard let folder = clipboardManager.getFinderSelectedFolder() else {
-            // Can't get folder, fallback to paste image
-            handlePasteImage()
-            return
-        }
+        // 多选图片一次复制的条目：content 是多行路径，而 sourceImageFileURL / handlePasteImage
+        // 只认第一张，走单图那套只会落下一个文件。回退也改走普通粘贴，把文件 URL 全带上。
+        let isMultiFile = item.isMultiFileImage
+        let fallback: () -> Void = isMultiFile
+            ? { QuickPanelWindowController.shared.dismissAndPaste(item, clipboardManager: clipboardManager) }
+            : handlePasteImage
+
+        // Can't get folder, fallback to paste image
+        guard let folder = finderSelectedFolder(fallback: fallback) else { return }
 
         // Genuine file-backed clip (Finder copy) → copy the user's original file directly,
         // preserving its exact bytes / format / metadata and its filename.
         // 剪贴板原始图片（包含截图，content == "[Image]"）直接通过 `imageBytesForExport()`
         // 写入原始字节，使用规范的 temp_<ts> 临时文件名（避免复制内部缓存时使用难看的 UUID 文件名）。
-        let savedURL: URL?
-        if item.content != "[Image]", let sourceURL = item.sourceImageFileURL {
-            savedURL = clipboardManager.copyImageFileToFolder(sourceURL: sourceURL, folder: folder)
+        // 多选图片一次复制的条目每张都保存。
+        let savedURLs: [URL]
+        if isMultiFile {
+            savedURLs = item.content.components(separatedBy: "\n")
+                .filter { !$0.isEmpty }
+                .compactMap { clipboardManager.copyImageFileToFolder(sourceURL: URL(fileURLWithPath: $0), folder: folder) }
+        } else if item.content != "[Image]", let sourceURL = item.sourceImageFileURL {
+            savedURLs = clipboardManager.copyImageFileToFolder(sourceURL: sourceURL, folder: folder).map { [$0] } ?? []
         } else {
-            savedURL = clipboardManager.saveImageToFolder(
+            savedURLs = clipboardManager.saveImageToFolder(
                 item.imageBytesForExport() ?? Data(),
                 folder: folder,
                 preferredFilename: nil
-            )
+            ).map { [$0] } ?? []
         }
-        guard let savedURL else {
+        guard let savedURL = savedURLs.first else {
             // Save failed, fallback to paste image
-            handlePasteImage()
+            fallback()
             return
         }
 
@@ -3428,7 +3674,11 @@ struct QuickPanelView: View {
                     if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { break }
                 }
                 try? await Task.sleep(for: .milliseconds(100))
-                NSWorkspace.shared.selectFile(savedURL.path, inFileViewerRootedAtPath: savedURL.deletingLastPathComponent().path)
+                if savedURLs.count > 1 {
+                    NSWorkspace.shared.activateFileViewerSelecting(savedURLs)
+                } else {
+                    NSWorkspace.shared.selectFile(savedURL.path, inFileViewerRootedAtPath: savedURL.deletingLastPathComponent().path)
+                }
             }
         }
     }

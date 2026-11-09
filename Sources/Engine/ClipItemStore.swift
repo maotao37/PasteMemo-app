@@ -670,10 +670,10 @@ final class ClipItemStore {
     static func deleteAndNotify(_ itemsToDelete: [ClipItem], from context: ModelContext) {
         guard !itemsToDelete.isEmpty else { return }
 
-        // Pause clipboard monitoring to prevent cleanExpiredItems from firing
+        // Hold clipboard monitoring to prevent cleanExpiredItems from firing
         // during deletion (nested RunLoops can trigger the timer's Task)
-        let wasPaused = ClipboardManager.shared.isPaused
-        if !wasPaused { ClipboardManager.shared.pauseMonitoring() }
+        ClipboardManager.shared.beginBulkWriteHold()
+        defer { ClipboardManager.shared.endBulkWriteHold() }
 
         // Remove only the deleted items from stores (avoids full-list flash).
         let idsToDelete = Set(itemsToDelete.map(\.persistentModelID))
@@ -694,8 +694,6 @@ final class ClipItemStore {
         }
         isBulkOperation = wasBulk
         saveAndNotify(context)
-
-        if !wasPaused { ClipboardManager.shared.resumeMonitoring() }
     }
 
     /// Permanently deletes items and immediately reclaims any app-owned original-image files.
@@ -720,10 +718,12 @@ final class ClipItemStore {
     ) async {
         guard !itemsToDelete.isEmpty else { return }
 
+        // Batched deletes are permanent (bulk clear, storage cleanup): reclaim the
+        // app-owned originals once the rows are gone.
         let originalPaths = itemsToDelete.compactMap(\.originalImageFilePath)
 
-        let wasPaused = ClipboardManager.shared.isPaused
-        if !wasPaused { ClipboardManager.shared.pauseMonitoring() }
+        ClipboardManager.shared.beginBulkWriteHold()
+        defer { ClipboardManager.shared.endBulkWriteHold() }
 
         let idsToDelete = Set(itemsToDelete.map(\.persistentModelID))
         for case let store as ClipItemStore in activeStores.allObjects {
@@ -756,8 +756,6 @@ final class ClipItemStore {
         for path in originalPaths {
             ClipboardManager.deleteOriginalCacheFile(at: path)
         }
-
-        if !wasPaused { ClipboardManager.shared.resumeMonitoring() }
     }
 
     /// Save context then trigger immediate UI refresh across all store instances

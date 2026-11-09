@@ -12,8 +12,6 @@ ARCH="${ARCH:-$(uname -m)}"
 CONFIGURATION="${CONFIGURATION:-release}"
 BUNDLE_ID="${BUNDLE_ID:-$DEFAULT_BUNDLE_ID}"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
-BUILD_DIR="$ROOT_DIR/.build/${ARCH}-apple-macosx/${CONFIGURATION}"
-PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
 ICON_FILE="$ROOT_DIR/Sources/Resources/AppIcon.icns"
 
 resolve_version() {
@@ -42,6 +40,19 @@ APP_DIR="$DIST_DIR/${APP_NAME}.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${VERSION}-${ARCH}.dmg"
 STAGING_DIR="$DIST_DIR/.dmg-staging-${ARCH}"
 
+# Shortcuts / Spotlight actions: compiler flags + metadata step (see the script).
+source "$ROOT_DIR/scripts/appintents-metadata.sh"
+
+# --build-system native, same as ci-build-dmg.sh: Xcode 27 / Swift 6.4's default
+# swiftbuild backend writes the deployment target into LC_BUILD_VERSION's sdk field
+# (the app then renders with macOS 14-era window chrome) and puts its products under
+# .build/out/Products/ instead. The bin path is asked from SwiftPM, never hard-coded:
+# with a stale hard-coded path the old binary left there gets packaged without a
+# single error.
+SWIFT_BUILD=(swift build -c "$CONFIGURATION" --arch "$ARCH" --build-system native)
+BUILD_DIR="$("${SWIFT_BUILD[@]}" --show-bin-path)"
+PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
+
 printf '[package] building %s %s (%s)\n' "$APP_NAME" "$VERSION" "$ARCH"
 
 # Swift 6.3/Xcode 26 can crash in the CopyPropagation pass at the default
@@ -49,15 +60,23 @@ printf '[package] building %s %s (%s)\n' "$APP_NAME" "$VERSION" "$ARCH"
 # optimization used by the signed CI pipeline.
 SWIFT_OPT_FLAGS=(-Xswiftc -Osize)
 
-# 根据不同架构构建 SwiftPM 项目
-swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}"
-
-# 动态获取当前架构输出目录
-BUILD_DIR="$(swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}" --show-bin-path)"
-PRODUCT_BINARY="$BUILD_DIR/$EXECUTABLE_NAME"
+# Removed first so a build that produced nothing fails here instead of shipping the
+# previous binary.
+rm -f "$PRODUCT_BINARY"
+"${SWIFT_BUILD[@]}" "${SWIFT_OPT_FLAGS[@]}" "${APPINTENTS_SWIFTC_FLAGS[@]}"
 
 if [[ ! -x "$PRODUCT_BINARY" ]]; then
   echo "Built binary not found: $PRODUCT_BINARY" >&2
+  exit 1
+fi
+if ! lipo -archs "$PRODUCT_BINARY" | tr ' ' '\n' | grep -qx "$ARCH"; then
+  echo "Built binary is $(lipo -archs "$PRODUCT_BINARY"), expected $ARCH: $PRODUCT_BINARY" >&2
+  exit 1
+fi
+EXPECTED_SDK="$(xcrun --show-sdk-version)"
+LINKED_SDK="$(otool -l "$PRODUCT_BINARY" | awk '/LC_BUILD_VERSION/{f=1} f && /sdk/{print $2; exit}')"
+if [[ "$LINKED_SDK" != "$EXPECTED_SDK" ]]; then
+  echo "LC_BUILD_VERSION sdk=$LINKED_SDK, expected $EXPECTED_SDK (legacy window chrome otherwise)" >&2
   exit 1
 fi
 
@@ -73,7 +92,7 @@ cp "$PRODUCT_BINARY" "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 chmod +x "$APP_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 
 # 构建并复制 MCP Proxy 命令行工具（如果存在）
-swift build -c "$CONFIGURATION" --arch "$ARCH" "${SWIFT_OPT_FLAGS[@]}" --product pastememo-mcp 2>/dev/null || true
+"${SWIFT_BUILD[@]}" --product pastememo-mcp "${SWIFT_OPT_FLAGS[@]}" 2>/dev/null || true
 if [[ -f "$BUILD_DIR/pastememo-mcp" ]]; then
   cp "$BUILD_DIR/pastememo-mcp" "$APP_DIR/Contents/MacOS/pastememo-mcp"
   chmod +x "$APP_DIR/Contents/MacOS/pastememo-mcp"
@@ -95,6 +114,10 @@ for bundle in "$BUILD_DIR"/*.bundle; do
     cp -R "$bundle" "$APP_DIR/" 2>/dev/null || true
   fi
 done
+# lproj per language (also carries the Shortcuts action titles), then the Shortcuts
+# metadata. Before codesign.
+appintents_install_strings "$APP_DIR"
+appintents_install_metadata "$BUILD_DIR" "$ARCH" "$APP_DIR"
 
 CURRENT_YEAR="$(date +%Y)"
 

@@ -16,9 +16,25 @@ struct LocalBackupDestination: BackupDestination {
         }
     }
 
+    /// Copied next to its final name first, then moved into place: a half-written copy never
+    /// carries a backup's name.
+    func upload(fileURL: URL, fileName: String) async throws {
+        try Self.withAccessBackupDirectory { dir in
+            try ensureDirectoryExists(dir)
+            let fm = FileManager.default
+            let destination = dir.appendingPathComponent(fileName)
+            let partial = dir.appendingPathComponent(".\(fileName).partial")
+            try? fm.removeItem(at: partial)
+            try fm.copyItem(at: fileURL, to: partial)
+            try? fm.removeItem(at: destination)
+            try fm.moveItem(at: partial, to: destination)
+        }
+    }
+
     func download(fileName: String) async throws -> Data {
         try Self.withAccessBackupDirectory { dir in
-            try Data(contentsOf: dir.appendingPathComponent(fileName))
+            // Mapped: restoring reads it through once, no need for a resident copy.
+            try Data(contentsOf: dir.appendingPathComponent(fileName), options: .mappedIfSafe)
         }
     }
 

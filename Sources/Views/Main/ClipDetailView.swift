@@ -14,13 +14,11 @@ struct ClipDetailView: View {
     @State private var typeColors = ClipTypeColorStore.shared
     @AppStorage(OCRTaskCoordinator.enableOCRKey) private var ocrEnabled = true
 
-    private var isEditableType: Bool {
-        item.contentType == .text || item.contentType == .code
-    }
+    private var isEditableType: Bool { item.isEditableText }
 
     @ViewBuilder
     var body: some View {
-        if item.isDeleted { EmptyView() } else {
+        if item.isGone { EmptyView() } else {
         VStack(alignment: .leading, spacing: 0) {
             actionBar
                 .padding(.horizontal, 16)
@@ -259,6 +257,7 @@ struct ClipDetailView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .disabled(editingContent.isEmpty)
 
             Button { cancelEdit() } label: {
                 Label(L10n.tr("action.cancel"), systemImage: "arrow.uturn.backward")
@@ -287,22 +286,10 @@ struct ClipDetailView: View {
     }
 
     private func saveEdit() {
-        item.content = editingContent
-        // 内容已被修改，清空旧快照与富文本数据，防止按回车粘贴时依然输出未修改的旧内容
-        item.resetStaleSnapshots()
-        item.displayTitle = ClipItem.buildTitle(
-            content: item.content,
-            contentType: item.contentType,
-            imageData: item.imageData,
-            filePaths: item.filePaths
-        )
-        item.isSensitive = SensitiveDetector.isSensitive(
-            content: item.content,
-            sourceAppBundleID: nil,
-            contentType: item.contentType
-        )
+        // 清空了就不存：空条目粘不出任何东西，也不是用户想要的结果
+        guard !editingContent.isEmpty else { return }
+        clipboardManager.applyEditedContent(editingContent, to: item, context: modelContext)
         RichTextCache.shared.invalidate(itemID: item.itemID)
-        ClipItemStore.saveAndNotifyContent(modelContext)
         isEditing = false
         textRefreshID = UUID()
     }
@@ -447,37 +434,12 @@ struct ClipDetailView: View {
     }
 
     private var editableTextPreview: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if item.richTextData != nil {
-                HStack(spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                    Text(L10n.tr("detail.richText.editWarning"))
-                        .foregroundStyle(.secondary)
-                }
-                .font(.system(size: 11))
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.orange.opacity(0.08))
-                )
-            }
-            NativeTextView(
-                text: editingContent,
-                isEditable: true,
-                autoFocus: true,
-                onTextChange: { editingContent = $0 },
-                onEscape: { cancelEdit() }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.primary.opacity(0.08))
-            )
-        }
+        ClipTextEditor(
+            hasRichText: item.richTextData != nil,
+            text: editingContent,
+            onTextChange: { editingContent = $0 },
+            onEscape: { cancelEdit() }
+        )
     }
 
     @State private var textRefreshID = UUID()
@@ -716,8 +678,8 @@ struct ClipDetailView: View {
             // Lazy on purpose: multi-thousand-file Finder copies would otherwise build
             // every FileRow (icon lookup each) in one body pass and freeze the app.
             LazyVStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(paths.enumerated()), id: \.offset) { _, path in
-                    FileRow(path: path)
+                ForEach(Array(paths.enumerated()), id: \.offset) { index, path in
+                    FileRow(path: path, listThumbnail: index == 0 ? item.listThumbnailOfFirstFile : nil)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -922,15 +884,36 @@ struct ClipDetailView: View {
 
 struct FileRow: View {
     let path: String
+    /// The thumbnail the clip's list row already decoded, when this row is that same image
+    /// (the first file of a multi-image clip) — shown as is, nothing generated.
+    var listThumbnail: NSImage? = nil
     var onOpenInFinder: (() -> Void)?
     @State private var isHovered = false
+    /// Image files show a thumbnail instead of the file icon, loaded in the background (see
+    /// `ImageCache.fileThumbnail`); the icon stands in until it's there.
+    @State private var thumbnail: NSImage?
+
+    private static let THUMBNAIL_SIZE: CGFloat = 32
+
+    private var isImageFile: Bool {
+        ClipboardManager.IMAGE_EXTENSIONS.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(nsImage: systemIcon(forFile: path))
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 22, height: 22)
+            if let thumb = listThumbnail ?? thumbnail
+                ?? (isImageFile ? ImageCache.shared.cachedFileThumbnail(forPath: path, size: Self.THUMBNAIL_SIZE) : nil) {
+                Image(nsImage: thumb)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 20, height: 20)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            } else {
+                Image(nsImage: systemIcon(forFile: path))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 20, height: 20)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(URL(fileURLWithPath: path).lastPathComponent)
                     .font(.system(size: 13, weight: .regular))
@@ -970,6 +953,17 @@ struct FileRow: View {
                 .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         )
         .onHover { isHovered = $0 }
+        .task(id: path) {
+            thumbnail = nil
+            guard isImageFile, listThumbnail == nil,
+                  ImageCache.shared.cachedFileThumbnail(forPath: path, size: Self.THUMBNAIL_SIZE) == nil else { return }
+            let path = path
+            let size = Self.THUMBNAIL_SIZE
+            let loaded = await Task.detached(priority: .utility) {
+                ImageCache.shared.fileThumbnail(forPath: path, size: size)
+            }.value
+            if !Task.isCancelled { thumbnail = loaded }
+        }
     }
 }
 

@@ -151,7 +151,6 @@
 "settings.quickPanelTabTypes" = "标签栏显示的分类";
 "settings.quickPanelTabTypes.hint" = "拖拽调整顺序，置顶和全部也能排。取消勾选可在快捷面板隐藏该分类，主窗口侧边栏不受影响。";
 "settings.quickPanelTabTypes.reset" = "恢复默认";
-"settings.history" = "历史记录";
 "settings.retentionDays" = "保留时长";
 "settings.retentionDays.forever" = "永久";
 "settings.retentionDays.days" = "%d 天";
@@ -233,6 +232,7 @@
 "detail.fileCount" = "文件数";
 "detail.fileStatus" = "状态";
 "file.unavailable.missing" = "文件已不存在";
+"finder.notResponding" = "访达没有响应";
 "file.unavailable.denied" = "无访问权限";
 "detail.host" = "域名";
 "detail.url" = "链接";
@@ -445,6 +445,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "数据";
+"dataPorter.importExport" = "导入与导出";
 "dataPorter.export" = "导出数据";
 "dataPorter.compressing" = "压缩中...";
 "dataPorter.import" = "导入数据";
@@ -520,7 +521,7 @@
 "automation.rule.triggerMode" = "触发模式";
 "automation.rule.triggerMode.automatic" = "自动触发";
 "automation.rule.triggerMode.manual" = "仅手动触发";
-"automation.rule.triggerMode.shortcutManualOnly" = "含快捷指令、AI 改写或关闭面板的规则只能手动触发";
+"automation.rule.triggerMode.shortcutManualOnly" = "规则里有只能手动执行的动作，只能手动触发";
 "automation.rule.outputMode" = "结果去向";
 "automation.rule.outputMode.replaceItem" = "替换当前条目";
 "automation.rule.outputMode.newItem" = "生成新条目";
@@ -738,13 +739,6 @@
 
 "filter.sensitive" = "敏感";
 
-"settings.clearData" = "清理数据";
-"settings.clearData.1month" = "删除 1 个月前";
-"settings.clearData.3months" = "删除 3 个月前";
-"settings.clearData.6months" = "删除 6 个月前";
-"settings.clearData.1year" = "删除 1 年前";
-"settings.clearData.all" = "删除全部";
-"settings.clearData.result" = "已删除 %d 条记录";
 
 "settings.sound" = "音效";
 "settings.sound.enabled" = "操作音效";
@@ -1096,3 +1090,134 @@
 "stats.directory.temporary" = "临时文件";
 "stats.directory.other" = "其他数据";
 
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "转换颜色格式";
+"automation.action.extractVerificationCode" = "只保留验证码";
+"automation.action.extractLinks" = "只保留链接";
+"automation.action.runOCR" = "识别图中文字";
+"automation.action.deleteItem" = "删除原条目";
+"automation.action.playSound" = "播放提示音";
+"automation.action.section.extract" = "提取与识别";
+"automation.action.section.open" = "打开与接力";
+"automation.rule.outputMode.saveToFile" = "存到文件夹";
+"automation.rule.outputMode.postWebhook" = "发到 Webhook";
+"automation.output.folder.empty" = "未选择文件夹";
+"automation.output.folder.choose" = "选择…";
+"automation.output.folder.invalid" = "找不到这个文件夹";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "发送 JSON（content、contentType、sourceApp、rule、createdAt）。敏感内容不发送。";
+"automation.output.webhook.invalidURL" = "地址要以 http:// 或 https:// 开头";
+"automation.output.webhook.tooLarge" = "内容太长，没有发送";
+"automation.output.webhook.failedStatus" = "发送失败（HTTP %d）";
+"automation.output.webhook.failed" = "发送失败：%@";
+"automation.output.webhook.sent" = "已发送";
+"automation.output.webhook.refused" = "敏感内容不发送";
+"automation.output.webhook.textOnly" = "只能发送文字内容";
+"automation.output.saved" = "已存到「%@」";
+"automation.output.saveFailed" = "保存失败，检查文件夹是否还在";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Base64 编码";
+"automation.action.base64Decode" = "Base64 解码";
+"automation.action.jsonFormat" = "JSON 格式化";
+"automation.action.jsonMinify" = "JSON 压缩";
+"automation.action.toCamelCase" = "转驼峰命名";
+"automation.action.toSnakeCase" = "转下划线命名";
+"automation.action.toHalfWidth" = "全角转半角";
+"automation.action.toFullWidth" = "半角转全角";
+"automation.action.simplifiedToTraditional" = "简体转繁体";
+"automation.action.removeDuplicateLines" = "删除重复行";
+"automation.action.sortLines" = "按行排序";
+"automation.action.sortLines.ascending" = "升序";
+"automation.action.sortLines.descending" = "降序";
+"automation.action.joinLines" = "合并为一行";
+"automation.action.joinLines.space" = "空格";
+"automation.action.joinLines.none" = "直接拼接";
+"automation.action.removeHTMLTags" = "去掉 HTML 标签";
+"automation.action.section.format" = "格式转换";
+"automation.action.section.lines" = "按行处理";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "内容";
+"automation.condition.section.app" = "应用";
+"automation.condition.section.state" = "条目状态";
+"automation.condition.section.time" = "时间";
+"automation.condition.targetApp" = "粘贴到的应用是";
+"automation.condition.targetApp.help" = "只在快捷面板和接力粘贴时能判断，复制时自动触发的规则不会满足这一条";
+"automation.condition.contentLength" = "字数范围";
+"automation.condition.lineCount" = "行数范围";
+"automation.condition.range.min" = "最少";
+"automation.condition.range.max" = "最多";
+"automation.condition.range.any" = "不限";
+"automation.condition.isPinned" = "已置顶";
+"automation.condition.isSensitive" = "已标记为敏感";
+"automation.condition.inGroup" = "所在分组是";
+"automation.condition.inGroup.any" = "任意分组";
+"automation.condition.timeOfDay" = "时间段";
+"automation.condition.weekday" = "星期";
+"automation.condition.negated" = "不满足";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "敏感条目保留";
+"settings.privacy.sensitiveRetention.followHistory" = "跟随保留时长";
+"settings.privacy.sensitiveRetention.minutes" = "%d 分钟";
+"settings.privacy.sensitiveRetention.hours" = "%d 小时";
+"settings.privacy.sensitiveRetention.hint" = "从最后一次复制或粘贴算起，到时自动删除。置顶和永久保留分组里的条目不删。";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "将删除 %d 条敏感条目";
+
+/* Storage */
+"settings.storage" = "存储空间";
+"storage.manage.title" = "管理存储空间";
+"storage.manage" = "管理";
+"storage.recordCount" = "%@ 条记录";
+"storage.scanFailed" = "无法读取数据";
+"storage.scanning" = "正在计算...";
+"storage.part.originals" = "原图";
+"storage.part.previews" = "缩略图";
+"storage.part.richText" = "富文本";
+"storage.byType" = "按类型";
+"storage.itemCount" = "%@ 条";
+"storage.autoClean" = "自动清理";
+"storage.optimize" = "优化";
+"storage.tiff.title" = "TIFF 原图无损转为 PNG";
+"storage.tiff.detail" = "%1$@ 张 · %2$@";
+"storage.tiff.progress" = "正在转换 %1$@ / %2$@";
+"storage.tiff.result" = "已转换 %1$@ 张，省 %2$@";
+"storage.tiff.kept" = "%@ 张无法无损转换，保留 TIFF";
+"storage.sourceCount" = "共 %@ 个来源";
+"storage.grouping.source" = "按来源";
+"storage.typeCount" = "共 %@ 种类型";
+"storage.column.type" = "类型";
+"storage.typeSelectionSummary" = "已选 %1$@ 种类型 · %2$@ 条 · %3$@";
+"storage.searchSources" = "搜索来源";
+"storage.allSources" = "全部来源";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "来源";
+"storage.column.latest" = "最近时间";
+"storage.column.count" = "条数";
+"storage.column.size" = "占用";
+"storage.protectedNote" = "删除的是 PasteMemo 里的记录，原文件不受影响。置顶和「永久保存」分组里的不会删除。";
+"storage.protectedExcluded" = "不含置顶和「永久保存」分组里的 %@ 条";
+"storage.deleteRecords" = "删除记录";
+"storage.delete.scope" = "只删除 PasteMemo 里的记录和副本，原文件不受影响。此操作不可恢复，确定要继续吗？";
+"storage.selectionSummary" = "已选 %1$@ 个来源 · %2$@ 条 · %3$@";
+"storage.delete.confirm" = "将删除 %@ 条记录";
+"storage.deleting" = "正在删除...";
+"storage.empty" = "没有可清理的内容";
+"storage.time.all" = "全部时间";
+"storage.time.1month" = "1 个月前";
+"storage.time.3months" = "3 个月前";
+"storage.time.6months" = "6 个月前";
+"storage.time.1year" = "1 年前";
+"storage.time.custom" = "自定义时间...";
+"storage.type.all" = "全部类型";
+"storage.listSeparator" = "、";
+"storage.sort.size" = "占用从大到小";
+"storage.sort.latest" = "最近复制";
+"storage.selectAll" = "全选";
+"storage.deselectAll" = "取消全选";
+"storage.itemSelectionSummary" = "已选 %1$@ 条 · %2$@";
+"storage.custom.title" = "自定义时间";
+"storage.custom.from" = "开始";
+"storage.custom.to" = "结束";

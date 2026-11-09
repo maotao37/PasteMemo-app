@@ -23,7 +23,7 @@ struct ClipRow: View {
     @ObservedObject private var languageManager = LanguageManager.shared
 
     var body: some View {
-        if item.isDeleted {
+        if item.isGone {
             EmptyView()
         } else {
             HStack(spacing: 10) {
@@ -144,7 +144,7 @@ struct ClipRow: View {
     /// 一律在 `.task` 里算好存进 `metricsText`，body 只负责读。
     private func loadMetrics() async {
         // compact 单行列表刻意保持干净；敏感条目连内容长度都不该泄露。
-        guard !compact, !item.isDeleted, !item.isSensitive else {
+        guard !compact, !item.isGone, !item.isSensitive else {
             metricsText = nil
             return
         }
@@ -211,7 +211,7 @@ struct ClipRow: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if item.isDeleted {
+        if item.isGone {
             EmptyView()
         } else if item.isSensitive {
             sensitiveThumbnail

@@ -4,8 +4,8 @@ import UserNotifications
 
 enum AutomationResult: Sendable {
     case unchanged
-    case applied(content: String, ruleName: String, actions: [RuleAction], writeBack: Bool)
-    case pendingConfirmation(content: String, ruleName: String, ruleID: String, actions: [RuleAction], writeBack: Bool)
+    case applied(content: String, ruleName: String, actions: [RuleAction], writeBack: Bool, outputs: [CaptureOutput])
+    case pendingConfirmation(content: String, ruleName: String, ruleID: String, actions: [RuleAction], writeBack: Bool, outputs: [CaptureOutput])
 }
 
 @MainActor
@@ -22,6 +22,7 @@ final class AutomationEngine {
         content: String,
         contentType: ClipContentType,
         sourceApp: String?,
+        isSensitive: Bool = false,
         context: ModelContext
     ) -> AutomationResult {
         guard ProManager.AUTOMATION_ENABLED else { return .unchanged }
@@ -33,24 +34,44 @@ final class AutomationEngine {
         var allActions: [RuleAction] = []
         var lastRuleName = ""
         var writeBack = false
+        var outputs: [CaptureOutput] = []
+        var matchedAny = false
         var needsConfirmation: (ruleName: String, ruleID: String)?
+        // The new clip's state as earlier rules in this pass leave it, so a later
+        // rule's "is pinned" / "in group" sees the pin / group an earlier one set.
+        var input = ConditionInput(content: content, contentType: contentType, sourceApp: sourceApp, isSensitive: isSensitive)
 
         for rule in rules {
             let conditions = rule.conditions
             let actions = rule.actions
-            guard !conditions.isEmpty, !actions.isEmpty else { continue }
-            guard Self.matchesConditions(
-                conditions, logic: rule.conditionLogic, content: currentContent, contentType: contentType, sourceApp: sourceApp
-            ) else { continue }
+            let hasOutput = rule.outputMode.needsParameter
+            guard !conditions.isEmpty, !actions.isEmpty || hasOutput else { continue }
+            input.content = currentContent
+            guard Self.matchesConditions(conditions, logic: rule.conditionLogic, input: input) else { continue }
 
             let processed = Self.executeActions(actions, on: currentContent)
             let hasSpecialActions = Self.containsSpecialAction(actions)
-            guard processed != currentContent || hasSpecialActions else { continue }
+            guard processed != currentContent || hasSpecialActions || hasOutput else { continue }
 
+            matchedAny = true
             currentContent = processed
             allActions.append(contentsOf: actions)
+            for action in actions {
+                switch action {
+                case .pin: input.isPinned = true
+                case .unpin: input.isPinned = false
+                case .markSensitive: input.isSensitive = true
+                case .unmarkSensitive: input.isSensitive = false
+                case .assignGroup(let name) where !name.isEmpty: input.groupName = name
+                default: break
+                }
+            }
             lastRuleName = rule.name
             if rule.outputMode.mirrorsToPasteboardOnCapture { writeBack = true }
+            if hasOutput {
+                let displayName = rule.isBuiltIn ? L10n.tr(rule.name) : rule.name
+                outputs.append(CaptureOutput(mode: rule.outputMode, param: rule.outputParam, ruleName: displayName))
+            }
 
             if rule.notifyOnTrigger {
                 let displayName = rule.isBuiltIn ? L10n.tr(rule.name) : rule.name
@@ -65,12 +86,12 @@ final class AutomationEngine {
             if actions.contains(.stopProcessing) { break }
         }
 
-        guard !allActions.isEmpty else { return .unchanged }
+        guard matchedAny else { return .unchanged }
 
         if let confirm = needsConfirmation {
-            return .pendingConfirmation(content: currentContent, ruleName: confirm.ruleName, ruleID: confirm.ruleID, actions: allActions, writeBack: writeBack)
+            return .pendingConfirmation(content: currentContent, ruleName: confirm.ruleName, ruleID: confirm.ruleID, actions: allActions, writeBack: writeBack, outputs: outputs)
         }
-        return .applied(content: currentContent, ruleName: lastRuleName, actions: allActions, writeBack: writeBack)
+        return .applied(content: currentContent, ruleName: lastRuleName, actions: allActions, writeBack: writeBack, outputs: outputs)
     }
 
     /// Apply a sequence of actions to content. Pure text transformation, no SwiftData needed.
@@ -88,21 +109,18 @@ final class AutomationEngine {
         contentType: ClipContentType,
         sourceApp: String?
     ) -> Bool {
+        matchesConditions(conditions, logic: logic,
+                          input: ConditionInput(content: content, contentType: contentType, sourceApp: sourceApp))
+    }
+
+    nonisolated static func matchesConditions(
+        _ conditions: [RuleCondition],
+        logic: ConditionLogic = .all,
+        input: ConditionInput
+    ) -> Bool {
         switch logic {
-        case .all:
-            for condition in conditions {
-                if !condition.matches(content: content, contentType: contentType, sourceApp: sourceApp) {
-                    return false
-                }
-            }
-            return true
-        case .any:
-            for condition in conditions {
-                if condition.matches(content: content, contentType: contentType, sourceApp: sourceApp) {
-                    return true
-                }
-            }
-            return false
+        case .all: return conditions.allSatisfy { $0.matches(input) }
+        case .any: return conditions.contains { $0.matches(input) }
         }
     }
 

@@ -141,7 +141,6 @@
 "settings.quickPanelTabTypes" = "Категории на панели вкладок";
 "settings.quickPanelTabTypes.hint" = "Перетащите, чтобы изменить порядок. Снятие галочки скрывает вкладку в быстрой панели; боковая панель не меняется.";
 "settings.quickPanelTabTypes.reset" = "Сбросить";
-"settings.history" = "История";
 "settings.retentionDays" = "Хранить историю";
 "settings.retentionDays.forever" = "Навсегда";
 "settings.retentionDays.days" = "%d дней";
@@ -214,6 +213,7 @@
 "detail.fileCount" = "Файлы";
 "detail.fileStatus" = "Статус";
 "file.unavailable.missing" = "Файл больше не существует";
+"finder.notResponding" = "Finder не отвечает";
 "file.unavailable.denied" = "Нет прав доступа";
 "detail.host" = "Хост";
 "detail.url" = "URL";
@@ -395,6 +395,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "Данные";
+"dataPorter.importExport" = "Импорт и экспорт";
 "dataPorter.export" = "Экспорт данных";
 "dataPorter.compressing" = "Сжатие...";
 "dataPorter.import" = "Импорт данных";
@@ -502,7 +503,6 @@
 
 "filter.sensitive" = "Конфиденциальные";
 
-"settings.clearData" = "Очистить все данные";
 
 "settings.sound" = "Звуки";
 "settings.sound.enabled" = "Звуковые эффекты";
@@ -677,12 +677,6 @@
 "help.relay.exit" = "Кнопка закрытия или Esc для выхода из режима эстафеты";
 
 /* Missing Keys - Clear Data */
-"settings.clearData.1month" = "Старше 1 месяца";
-"settings.clearData.3months" = "Старше 3 месяцев";
-"settings.clearData.6months" = "Старше 6 месяцев";
-"settings.clearData.1year" = "Старше 1 года";
-"settings.clearData.all" = "Удалить всё";
-"settings.clearData.result" = "Удалено элементов: %d";
 
 /* Missing Keys - Backup */
 "backup.nextBackup" = "Следующая копия";
@@ -720,7 +714,7 @@
 "automation.rule.triggerMode" = "Триггер";
 "automation.rule.triggerMode.automatic" = "Автоматический";
 "automation.rule.triggerMode.manual" = "Только вручную";
-"automation.rule.triggerMode.shortcutManualOnly" = "Правила с «Запустить команду», «ИИ-переписыванием» или «Закрыть быструю панель» работают только при ручном запуске";
+"automation.rule.triggerMode.shortcutManualOnly" = "Есть действия, выполняемые только вручную, — только ручной запуск";
 "automation.rule.outputMode" = "Куда идёт результат";
 "automation.rule.outputMode.replaceItem" = "Заменить этот элемент";
 "automation.rule.outputMode.newItem" = "Новый элемент";
@@ -1123,3 +1117,134 @@
 "stats.runtime.memory.hint" = "Physical memory footprint";
 "stats.runtime.monitoring" = "Live";
 "stats.runtime.title" = "Runtime Resources";
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "Преобразовать формат цвета";
+"automation.action.extractVerificationCode" = "Оставить только код подтверждения";
+"automation.action.extractLinks" = "Оставить только ссылки";
+"automation.action.runOCR" = "Распознать текст на изображении";
+"automation.action.deleteItem" = "Удалить исходную запись";
+"automation.action.playSound" = "Воспроизвести звук";
+"automation.action.section.extract" = "Извлечение и распознавание";
+"automation.action.section.open" = "Открыть и очередь";
+"automation.rule.outputMode.saveToFile" = "Сохранить в папку";
+"automation.rule.outputMode.postWebhook" = "Отправить в вебхук";
+"automation.output.folder.empty" = "Папка не выбрана";
+"automation.output.folder.choose" = "Выбрать…";
+"automation.output.folder.invalid" = "Папка не найдена";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "Отправляет JSON (content, contentType, sourceApp, rule, createdAt). Конфиденциальные записи не отправляются.";
+"automation.output.webhook.invalidURL" = "Адрес должен начинаться с http:// или https://";
+"automation.output.webhook.tooLarge" = "Слишком длинно, не отправлено";
+"automation.output.webhook.failedStatus" = "Ошибка отправки (HTTP %d)";
+"automation.output.webhook.failed" = "Ошибка отправки: %@";
+"automation.output.webhook.sent" = "Отправлено";
+"automation.output.webhook.refused" = "Конфиденциальные записи не отправляются";
+"automation.output.webhook.textOnly" = "Можно отправить только текст";
+"automation.output.saved" = "Сохранено в «%@»";
+"automation.output.saveFailed" = "Не удалось сохранить. Проверьте, что папка существует.";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Кодировать в Base64";
+"automation.action.base64Decode" = "Декодировать Base64";
+"automation.action.jsonFormat" = "Отформатировать JSON";
+"automation.action.jsonMinify" = "Сжать JSON";
+"automation.action.toCamelCase" = "В camelCase";
+"automation.action.toSnakeCase" = "В snake_case";
+"automation.action.toHalfWidth" = "Полноширинные в обычные";
+"automation.action.toFullWidth" = "Обычные в полноширинные";
+"automation.action.simplifiedToTraditional" = "Упрощённый китайский в традиционный";
+"automation.action.removeDuplicateLines" = "Удалить повторяющиеся строки";
+"automation.action.sortLines" = "Сортировать строки";
+"automation.action.sortLines.ascending" = "По возрастанию";
+"automation.action.sortLines.descending" = "По убыванию";
+"automation.action.joinLines" = "Объединить строки";
+"automation.action.joinLines.space" = "Пробел";
+"automation.action.joinLines.none" = "Без разделителя";
+"automation.action.removeHTMLTags" = "Удалить HTML-теги";
+"automation.action.section.format" = "Преобразование";
+"automation.action.section.lines" = "Строки";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "Содержимое";
+"automation.condition.section.app" = "Приложения";
+"automation.condition.section.state" = "Состояние записи";
+"automation.condition.section.time" = "Время";
+"automation.condition.targetApp" = "Вставка в";
+"automation.condition.targetApp.help" = "Известно только в быстрой панели и при вставке из очереди. Правила, срабатывающие при копировании, этому не соответствуют.";
+"automation.condition.contentLength" = "Число символов";
+"automation.condition.lineCount" = "Число строк";
+"automation.condition.range.min" = "Мин.";
+"automation.condition.range.max" = "Макс.";
+"automation.condition.range.any" = "Любое";
+"automation.condition.isPinned" = "Закреплено";
+"automation.condition.isSensitive" = "Отмечено как конфиденциальное";
+"automation.condition.inGroup" = "Группа";
+"automation.condition.inGroup.any" = "Любая группа";
+"automation.condition.timeOfDay" = "Время суток";
+"automation.condition.weekday" = "День недели";
+"automation.condition.negated" = "Не выполнено";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "Хранить конфиденциальные записи";
+"settings.privacy.sensitiveRetention.followHistory" = "Как история";
+"settings.privacy.sensitiveRetention.minutes" = "%d мин";
+"settings.privacy.sensitiveRetention.hours" = "%d ч";
+"settings.privacy.sensitiveRetention.hint" = "Отсчитывается от последнего копирования или вставки, затем запись удаляется. Закреплённые записи и записи в бессрочных группах остаются.";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "Будет удалено конфиденциальных записей: %d";
+
+/* Storage */
+"settings.storage" = "Хранилище";
+"storage.manage.title" = "Управление хранилищем";
+"storage.manage" = "Управлять";
+"storage.recordCount" = "Записей: %@";
+"storage.scanFailed" = "Не удалось прочитать данные";
+"storage.scanning" = "Подсчёт...";
+"storage.part.originals" = "Оригиналы";
+"storage.part.previews" = "Миниатюры";
+"storage.part.richText" = "Форматированный текст";
+"storage.byType" = "По типу";
+"storage.itemCount" = "%@ шт.";
+"storage.autoClean" = "Автоочистка";
+"storage.optimize" = "Оптимизация";
+"storage.tiff.title" = "Преобразовать оригиналы TIFF в PNG без потерь";
+"storage.tiff.detail" = "Изображений: %1$@ · %2$@";
+"storage.tiff.progress" = "Преобразование: %1$@ из %2$@";
+"storage.tiff.result" = "Преобразовано изображений: %1$@, освобождено %2$@";
+"storage.tiff.kept" = "Изображений без преобразования (остались в TIFF): %@";
+"storage.sourceCount" = "Источников: %@";
+"storage.grouping.source" = "По источнику";
+"storage.typeCount" = "Типов: %@";
+"storage.column.type" = "Тип";
+"storage.typeSelectionSummary" = "Выбрано типов: %1$@ · записей: %2$@ · %3$@";
+"storage.searchSources" = "Поиск источника";
+"storage.allSources" = "Все источники";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "Источник";
+"storage.column.latest" = "Последнее копирование";
+"storage.column.count" = "Записи";
+"storage.column.size" = "Размер";
+"storage.protectedNote" = "Удаляются записи PasteMemo, а не исходные файлы. Закреплённые элементы и элементы из постоянных групп не удаляются.";
+"storage.protectedExcluded" = "Без учёта закреплённых и постоянных: %@";
+"storage.deleteRecords" = "Удалить записи";
+"storage.delete.scope" = "Удаляются только записи PasteMemo и сохранённые им копии; исходные файлы не затрагиваются. Это действие нельзя отменить.";
+"storage.selectionSummary" = "Выбрано источников: %1$@ · записей: %2$@ · %3$@";
+"storage.delete.confirm" = "Удалить записи (%@)?";
+"storage.deleting" = "Удаление...";
+"storage.empty" = "Нечего очищать";
+"storage.time.all" = "За всё время";
+"storage.time.1month" = "Старше 1 месяца";
+"storage.time.3months" = "Старше 3 месяцев";
+"storage.time.6months" = "Старше 6 месяцев";
+"storage.time.1year" = "Старше 1 года";
+"storage.time.custom" = "Свой период...";
+"storage.type.all" = "Все типы";
+"storage.listSeparator" = ", ";
+"storage.sort.size" = "Сначала крупные";
+"storage.sort.latest" = "Сначала новые";
+"storage.selectAll" = "Выбрать все";
+"storage.deselectAll" = "Снять выбор";
+"storage.itemSelectionSummary" = "Выбрано: %1$@ · %2$@";
+"storage.custom.title" = "Свой период";
+"storage.custom.from" = "С";
+"storage.custom.to" = "По";

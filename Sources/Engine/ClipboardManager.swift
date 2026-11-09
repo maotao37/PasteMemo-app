@@ -7,6 +7,10 @@ import UniformTypeIdentifiers
 
 private let CLIPBOARD_POLL_INTERVAL: TimeInterval = 0.5
 private let PASTE_SIMULATION_DELAY: Duration = .milliseconds(30)
+/// Multi-paste pacing (`waitForTargetToCatchUp`): the pause before the second check, and the
+/// most one accessibility request may wait on a busy target, in seconds.
+private let TARGET_SETTLE_PAUSE: Duration = .milliseconds(100)
+private let TARGET_CATCH_UP_TIMEOUT: Float = 5
 /// Device-dependent modifier bit for the LEFT Command key (NX_DEVICELCMDKEYMASK).
 /// `.maskCommand` alone is the abstract Command bit — native macOS apps honor it,
 /// but remote-desktop / streaming clients (MS Remote Desktop, UU远程, issue #60)
@@ -51,6 +55,13 @@ final class ClipboardManager: ObservableObject {
 
     var isPaused: Bool { !isMonitoringEnabled || isTemporarilyPaused }
 
+    /// Holds taken while deleting / restoring clips, so the capture timer (and the expiry
+    /// sweep it drives) can't fire mid-transaction. Memory only: a crash or quit mid-delete
+    /// must not leave monitoring switched off on the next launch, which is what pausing via
+    /// the persisted user toggle did. Counted so overlapping holds release correctly, and
+    /// kept out of `isPaused` so the UI keeps showing the user's own setting.
+    private var bulkWriteHolds = 0
+
     // Track app switches to determine the real source app
     private var appBeforeSwitch: (name: String?, bundleID: String?) = (nil, nil)
     private var lastSwitchTime: Date = .distantPast
@@ -90,12 +101,26 @@ final class ClipboardManager: ObservableObject {
     }
 
     private func applyMonitoringState() {
-        if isPaused {
+        if isPaused || bulkWriteHolds > 0 {
             stopMonitoring()
         } else if timer == nil {
             startMonitoring()
         }
     }
+
+    /// Stop capturing until the matching `endBulkWriteHold()`. See `bulkWriteHolds`.
+    func beginBulkWriteHold() {
+        bulkWriteHolds += 1
+        applyMonitoringState()
+    }
+
+    func endBulkWriteHold() {
+        guard bulkWriteHolds > 0 else { return }
+        bulkWriteHolds -= 1
+        applyMonitoringState()
+    }
+
+    var isHeldForBulkWrite: Bool { bulkWriteHolds > 0 }
 
     func stopMonitoring() {
         timer?.invalidate()
@@ -164,7 +189,12 @@ final class ClipboardManager: ObservableObject {
         }
         // If an app switch happened very recently, the copy likely came from the previous app
         let appInfo: (name: String?, bundleID: String?)
-        let isSMSCodeWrite = NSPasteboard.general.string(forType: .smsCodeSource) != nil
+        let smsBody = Self.smsBody(
+            marker: NSPasteboard.general.string(forType: .smsCodeSource),
+            pasteboardText: NSPasteboard.general.string(forType: .string),
+            recent: recentSMSCode
+        )
+        let isSMSCodeWrite = smsBody != nil
         if isSMSCodeWrite {
             // SMS 验证码由 SMSCodeWatcher 写入,归因到「信息」App 而不是当前前台 App,
             // 侧栏来源过滤 / 自动化规则的 sourceApp 条件都按 com.apple.MobileSMS 命中。
@@ -198,8 +228,7 @@ final class ClipboardManager: ObservableObject {
 
         // 短信验证码:marker 的值就是短信全文,存到 smsMessageText 供列表角标 +
         // 预览区「短信原文」使用(content 只有码本身)。
-        if isSMSCodeWrite,
-           let smsBody = NSPasteboard.general.string(forType: .smsCodeSource), !smsBody.isEmpty {
+        if let smsBody, !smsBody.isEmpty {
             newItem.smsMessageText = smsBody
         }
 
@@ -213,18 +242,23 @@ final class ClipboardManager: ObservableObject {
             content: newItem.content,
             contentType: newItem.contentType,
             sourceApp: appInfo.bundleID,
+            isSensitive: newItem.isSensitive,
             context: context
         )
+        var captureOutputs: [CaptureOutput] = []
+        var ruleSounds: [String] = []
         switch result {
         case .unchanged:
             break
-        case .applied(let processed, _, let actions, let writeBack):
+        case .applied(let processed, _, let actions, let writeBack, let outputs):
             if actions.contains(.skipCapture) { return }
             applyAutomationActions(actions, processed: processed, to: newItem, writeBack: writeBack, context: context)
             if writeBack, newItem.contentType.isMergeable {
                 mirrorTransformedTextToPasteboard(processed, original: originalContent)
             }
-        case .pendingConfirmation(let processed, let ruleName, _, let actions, let writeBack):
+            captureOutputs = outputs
+            ruleSounds = Self.soundNames(in: actions)
+        case .pendingConfirmation(let processed, let ruleName, _, let actions, let writeBack, let outputs):
             let accepted = showAutomationConfirmation(
                 ruleName: ruleName, original: newItem.content, processed: processed
             )
@@ -234,10 +268,29 @@ final class ClipboardManager: ObservableObject {
                 if writeBack, newItem.contentType.isMergeable {
                     mirrorTransformedTextToPasteboard(processed, original: originalContent)
                 }
+                captureOutputs = outputs
+                ruleSounds = Self.soundNames(in: actions)
             }
         }
 
-        if isLatestDuplicate(newItem, in: context) { return }
+        // An app that writes the same thing twice in a row isn't a second copy:
+        // no second file / POST / sound for it.
+        if let latest = latestDuplicate(of: newItem, in: context) {
+            // macOS's verification-code AutoFill can write the code before the SMS
+            // watcher gets to it (the watcher polls chat.db every 2 s); that earlier
+            // write landed as a plain clip of the frontmost app. Ours is the duplicate
+            // now — hand the clip its Messages attribution and SMS text.
+            if isSMSCodeWrite, latest.smsMessageText == nil {
+                Self.adoptSMSAttribution(latest, from: newItem)
+                ClipItemStore.saveAndNotify(context)
+            }
+            return
+        }
+
+        ruleSounds.last.map(SoundManager.play(storageKey:))
+        if !captureOutputs.isEmpty {
+            RuleOutputDelivery.deliverOnCapture(captureOutputs, item: newItem)
+        }
 
         if let existingItem = findExistingDuplicate(for: newItem, in: context) {
             reuseExistingDuplicate(existingItem, with: newItem, in: context)
@@ -254,6 +307,9 @@ final class ClipboardManager: ObservableObject {
         didInsert = true
         cleanExpiredItems(in: context)
         ClipItemStore.saveAndNotify(context)
+        if let original = newItem.originalImageFilePath {
+            OriginalImageOptimizer.shared.enqueueCaptured(itemID: newItem.itemID, path: original)
+        }
 
         SoundManager.playCopy()
 
@@ -290,11 +346,20 @@ final class ClipboardManager: ObservableObject {
             ? capturePasteboardSnapshot(from: pasteboard)
             : nil
 
+        let paths = fileURLs.map(\.path)
+        // An image an app copied out of its own storage (Photos, WeChat) — keep the image, not
+        // a path that is about to vanish or can't be read. See `isAppPrivateImageCopy`.
+        let declaresImage = pasteboard.pasteboardItems?.first?.types
+            .contains(where: Self.PASTEBOARD_IMAGE_TYPES.contains) ?? false
+        if Self.isAppPrivateImageCopy(filePaths: paths, declaresImage: declaresImage),
+           let original = Self.completeImageFileData(at: paths[0]) ?? rawImageData {
+            return makeImageClip(original: original, sourceApp: sourceApp)
+        }
+
         // File URLs only (copied files/folders from Finder)
         if hasFiles {
-            let paths = fileURLs.map(\.path)
             let content = paths.joined(separator: "\n")
-            let fileType = detectFileType(paths)
+            let fileType = Self.detectFileType(paths)
             // For image files, generate a small thumbnail (of the first file) for UI
             // preview only — multi-image copies need it too, otherwise the image-grid
             // tile has nothing to render. Paste writes the original file URLs — target
@@ -331,26 +396,8 @@ final class ClipboardManager: ObservableObject {
         }
 
         // Image only (screenshots, copy image from apps that don't expose a file URL).
-        // Persist the verbatim original to our own cache file (any size, no transcode) and keep
-        // only a small JPEG thumbnail in `imageData`, so list/preview never fault the full
-        // original off disk on selection. Paste/OCR read the original back via `sourceImageFileURL`
-        // (→ `originalImageFilePath`). If the cache write OR thumbnailing fails, fall back to
-        // storing the original inline in `imageData` so the image is never lost — just unoptimised.
         if rawHasImage, let original = rawImageData {
-            if let cachePath = Self.writeOriginalImageToCache(original) {
-                if let thumb = Self.makeThumbnailData(from: original) {
-                    let item = ClipItem(content: "[Image]", contentType: .image, imageData: thumb,
-                                        originalImageFilePath: cachePath, sourceApp: sourceApp)
-                    // buildTitle measured the thumbnail; correct "Image (W×H)" to the original's dims.
-                    if let dims = ImageCache.shared.imageDimensions(for: original) {
-                        item.displayTitle = "Image (\(Int(dims.width))×\(Int(dims.height)))"
-                    }
-                    return item
-                }
-                // Thumbnail failed — don't leave an orphan cache file; fall through to inline.
-                try? FileManager.default.removeItem(atPath: cachePath)
-            }
-            return ClipItem(content: "[Image]", contentType: .image, imageData: original, sourceApp: sourceApp)
+            return makeImageClip(original: original, sourceApp: sourceApp)
         }
 
         // Plain text (no rich formatting). Still attach the snapshot when the source wrote
@@ -372,6 +419,28 @@ final class ClipboardManager: ObservableObject {
             sourceApp: sourceApp, codeLanguage: detected.language,
             pasteboardSnapshot: snapshot
         )
+    }
+
+    /// Persists the verbatim original to our own cache file (any size, no transcode) and keeps
+    /// only a small JPEG thumbnail in `imageData`, so list/preview never fault the full
+    /// original off disk on selection. Paste/OCR read the original back via `sourceImageFileURL`
+    /// (→ `originalImageFilePath`). If the cache write OR thumbnailing fails, falls back to
+    /// storing the original inline in `imageData` so the image is never lost — just unoptimised.
+    private func makeImageClip(original: Data, sourceApp: String?) -> ClipItem {
+        if let cachePath = Self.writeOriginalImageToCache(original) {
+            if let thumb = Self.makeThumbnailData(from: original) {
+                let item = ClipItem(content: "[Image]", contentType: .image, imageData: thumb,
+                                    originalImageFilePath: cachePath, sourceApp: sourceApp)
+                // buildTitle measured the thumbnail; correct "Image (W×H)" to the original's dims.
+                if let dims = ImageCache.shared.imageDimensions(for: original) {
+                    item.displayTitle = "Image (\(Int(dims.width))×\(Int(dims.height)))"
+                }
+                return item
+            }
+            // Thumbnail failed — don't leave an orphan cache file; fall through to inline.
+            try? FileManager.default.removeItem(atPath: cachePath)
+        }
+        return ClipItem(content: "[Image]", contentType: .image, imageData: original, sourceApp: sourceApp)
     }
 
     /// Returns true if the pasteboard carries at least one UTI whose prefix isn't in the
@@ -449,6 +518,65 @@ final class ClipboardManager: ObservableObject {
             return nil
         }
         return try? Data(contentsOf: url)
+    }
+
+    /// Some apps copy an image as a file URL into their *own* storage plus the image bytes:
+    /// Photos points into its library package (`….photoslibrary/…`, TCC-protected — macOS won't
+    /// even prompt an app lacking the photos-library entitlement), WeChat into its purged
+    /// `xwechat_files/…/temp/RWTemp/…`. The file branch stores only the path, so such clips
+    /// ended up previewing and pasting nothing. True tells the caller to keep the image itself
+    /// as a plain image clip.
+    ///
+    /// Files in user-managed places (Pictures, Downloads, iCloud Drive…) keep the path: they
+    /// last, and storing a copy would duplicate every screenshot already saved on disk.
+    /// `declaresImage` must mean the image type is declared on the pasteboard item, not merely
+    /// convertible: a Finder file copy declares only the file's icon (`com.apple.icns`), which
+    /// NSPasteboard turns into TIFF on request. Single file only — the raw image read covers
+    /// just the first pasteboard item, so a multi-image copy would silently keep one. Image
+    /// files only, so a video's poster frame never stands in for the video; GIF excluded
+    /// because image clips paste back as a still frame.
+    static func isAppPrivateImageCopy(
+        filePaths: [String], declaresImage: Bool, homeDirectory: String = NSHomeDirectory()
+    ) -> Bool {
+        guard declaresImage, filePaths.count == 1 else { return false }
+        let url = URL(fileURLWithPath: filePaths[0])
+        let ext = url.pathExtension.lowercased()
+        guard ext != "gif", IMAGE_EXTENSIONS.contains(ext) else { return false }
+        // `dropLast()`: copying the library package itself in Finder is an ordinary file copy.
+        if url.pathComponents.dropLast().contains(where: { $0.lowercased().hasSuffix(".photoslibrary") }) {
+            return true
+        }
+        let library = homeDirectory + "/Library/"
+        let privatePrefixes = [
+            library + "Containers/", library + "Group Containers/",
+            library + "Caches/", library + "Application Support/",
+            "/private/var/folders/", "/var/folders/", "/private/tmp/", "/tmp/",
+        ]
+        return privatePrefixes.contains(where: url.path.hasPrefix)
+    }
+
+    /// The source file's bytes when they form a complete image, else nil and the caller keeps
+    /// the pasteboard's bytes. The file comes first because the pasteboard's TIFF is often
+    /// several times its size (WeChat: 625 KB TIFF for a small PNG). It's nil when the file is
+    /// unreadable (Photos library) or still being written: WeChat creates its temp copy right
+    /// around the moment we read it.
+    nonisolated static func completeImageFileData(at path: String) -> Data? {
+        guard let data = loadOriginalImageData(at: path), isCompleteImage(data) else { return nil }
+        return data
+    }
+
+    /// ImageIO reads the header — dimensions included — of a half-written file without
+    /// complaint, so JPEG and PNG must also end in their end marker (EOI / IEND chunk).
+    nonisolated static func isCompleteImage(_ data: Data) -> Bool {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) {
+            return data.suffix(2).elementsEqual([0xFF, 0xD9])
+        }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+            // Last chunk: length (4) + "IEND" (4) + CRC (4).
+            return data.dropLast(4).suffix(4).elementsEqual(Array("IEND".utf8))
+        }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return false }
+        return CGImageSourceGetCount(source) > 0
     }
 
     /// Generates a JPEG thumbnail (long edge `FILE_THUMBNAIL_MAX_PIXELS`) for an
@@ -590,7 +718,9 @@ final class ClipboardManager: ObservableObject {
         let descriptor = FetchDescriptor<ClipItem>(
             predicate: #Predicate { $0.originalImageFilePath != nil }
         )
-        let referenced = Set((try? context.fetch(descriptor))?.compactMap(\.originalImageFilePath) ?? [])
+        // 查询失败就分不清哪些原图还被引用——宁可一个不删，也不能全删。
+        guard let rows = try? context.fetch(descriptor) else { return }
+        let referenced = Set(rows.compactMap(\.originalImageFilePath))
         Task.detached(priority: .utility) {
             for file in files where !referenced.contains(file.path) {
                 try? FileManager.default.removeItem(at: file)
@@ -636,14 +766,15 @@ final class ClipboardManager: ObservableObject {
     /// drops it when the bytes exceed `MAX_IMAGE_BYTES`. Without the cap a single
     /// pathological clip (Photoshop selection, RAW export) can blow up both the
     /// SwiftData store and downstream backup encoding.
+    private static let PASTEBOARD_IMAGE_TYPES: [NSPasteboard.PasteboardType] = [
+        .png,
+        NSPasteboard.PasteboardType("public.jpeg"),
+        NSPasteboard.PasteboardType("public.heic"),
+        .tiff
+    ]
+
     private func capturePasteboardImage(from pasteboard: NSPasteboard) -> Data? {
-        let imageTypes: [NSPasteboard.PasteboardType] = [
-            .png,
-            NSPasteboard.PasteboardType("public.jpeg"),
-            NSPasteboard.PasteboardType("public.heic"),
-            .tiff
-        ]
-        for type in imageTypes {
+        for type in Self.PASTEBOARD_IMAGE_TYPES {
             guard let data = pasteboard.data(forType: type) else { continue }
             if data.count > Self.MAX_IMAGE_BYTES { return nil }
             return data
@@ -860,7 +991,7 @@ final class ClipboardManager: ObservableObject {
         "mp4", "mov", "avi", "mkv", "wmv", "flv", "webm", "m4v", "mpg", "mpeg", "3gp"
     ]
 
-    private static let IMAGE_EXTENSIONS: Set<String> = [
+    static let IMAGE_EXTENSIONS: Set<String> = [
         "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "webp", "heic", "heif", "svg", "ico"
     ]
 
@@ -884,7 +1015,7 @@ final class ClipboardManager: ObservableObject {
         "app", "pkg", "mpkg", "exe", "msi", "deb", "rpm", "apk", "ipa"
     ]
 
-    private func detectFileType(_ paths: [String]) -> ClipContentType {
+    static func detectFileType(_ paths: [String]) -> ClipContentType {
         let extensions = paths.compactMap { URL(fileURLWithPath: $0).pathExtension.lowercased() }
         let isDir = paths.count == 1 && {
             var isDirectory: ObjCBool = false
@@ -930,10 +1061,23 @@ final class ClipboardManager: ObservableObject {
 
         if existingItem.imageData == nil {
             existingItem.imageData = newItem.imageData
+        } else if existingItem.contentType == .image, existingItem.content != "[Image]",
+                  let fresh = newItem.imageData, fresh != existingItem.imageData {
+            // Same file copied again after it changed (CleanShot re-saves an annotated shot
+            // under the same name): the clip pastes the file as it is now, so the thumbnail
+            // should show that too.
+            existingItem.imageData = fresh
+            ImageCache.shared.invalidate(key: existingItem.itemID)
         }
-        if existingItem.richTextData == nil {
-            existingItem.richTextData = newItem.richTextData
+        if let richText = newItem.richTextData {
+            // Same words, possibly new formatting: the copy just made wins, so pasting gives
+            // what was copied last. Its snapshot goes with it — an older one would replay
+            // the old formatting. A plain re-copy keeps the formatting already there.
+            existingItem.richTextData = richText
             existingItem.richTextType = newItem.richTextType
+            existingItem.pasteboardSnapshot = newItem.pasteboardSnapshot
+        } else if existingItem.pasteboardSnapshot == nil {
+            existingItem.pasteboardSnapshot = newItem.pasteboardSnapshot
         }
         if existingItem.codeLanguage == nil {
             existingItem.codeLanguage = newItem.codeLanguage
@@ -950,13 +1094,57 @@ final class ClipboardManager: ObservableObject {
         }
     }
 
-    private func isLatestDuplicate(_ newItem: ClipItem, in context: ModelContext) -> Bool {
+    /// The newest clip, when `newItem` duplicates it.
+    private func latestDuplicate(of newItem: ClipItem, in context: ModelContext) -> ClipItem? {
         // fetchLimit 必须有：这里只看最新一条，没有 limit 会把全表（万条级）物化到
         // 内存，每次复制都在主线程卡数百毫秒（11k 条实测 ~220ms vs 4ms）。
         var descriptor = FetchDescriptor<ClipItem>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
         descriptor.fetchLimit = 1
-        guard let latest = try? context.fetch(descriptor).first else { return false }
-        return matchesDuplicateCandidate(latest, with: newItem)
+        guard let latest = try? context.fetch(descriptor).first else { return nil }
+        return matchesDuplicateCandidate(latest, with: newItem) ? latest : nil
+    }
+
+    // MARK: - SMS code attribution
+
+    /// What `SMSCodeWatcher` last put on the pasteboard. When the user picks macOS's
+    /// "From Messages" verification-code suggestion in another app, the system writes the
+    /// same code to the pasteboard itself — without our marker, often a fraction of a
+    /// second after our write and so before the 0.5 s poll has seen ours (2026-10-17: the
+    /// code landed as a Google Chrome clip with no SMS text). Matching on the code keeps
+    /// such a write attributed to Messages.
+    private var recentSMSCode: SMSCodeWrite?
+
+    struct SMSCodeWrite: Equatable {
+        let code: String
+        let message: String
+        let at: Date
+    }
+
+    /// How long after the watcher's write the same code still counts as the SMS code.
+    nonisolated static let SMS_ATTRIBUTION_WINDOW: TimeInterval = 60
+
+    /// Called by `SMSCodeWatcher` right before it writes `code` to the pasteboard.
+    func noteSMSCodeWrite(code: String, message: String) {
+        recentSMSCode = SMSCodeWrite(code: code, message: message, at: Date())
+    }
+
+    /// The SMS text a capture should carry, or nil when it isn't an SMS code: our marker
+    /// when present, else the watcher's recent write when the pasteboard holds that code.
+    nonisolated static func smsBody(marker: String?, pasteboardText: String?,
+                                    recent: SMSCodeWrite?, now: Date = Date()) -> String? {
+        if let marker { return marker }
+        guard let recent, now.timeIntervalSince(recent.at) < SMS_ATTRIBUTION_WINDOW,
+              let text = pasteboardText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              text == recent.code else { return nil }
+        return recent.message
+    }
+
+    /// Re-attribute an existing clip to Messages, the way a fresh SMS-code capture is.
+    static func adoptSMSAttribution(_ item: ClipItem, from smsCapture: ClipItem) {
+        item.sourceApp = smsCapture.sourceApp
+        item.sourceAppBundleID = smsCapture.sourceAppBundleID
+        item.smsMessageText = smsCapture.smsMessageText
+        item.isSensitive = false
     }
 
     private func matchesDuplicateCandidate(_ existingItem: ClipItem, with newItem: ClipItem) -> Bool {
@@ -968,7 +1156,12 @@ final class ClipboardManager: ObservableObject {
         let newIsRelaxedText = newItem.contentType == .text
 
         if existingItem.contentType == newItem.contentType {
-            if existingItem.contentType == .image, existingItem.imageData != newItem.imageData { return false }
+            if existingItem.contentType == .image {
+                // A file-backed image is its file: the same path is the same clip, whatever the
+                // thumbnail says (an edited file thumbnails differently — CleanShot re-saves
+                // under the same name). Pasteboard images (`[Image]`) compare the pictures.
+                return existingItem.content != "[Image]" || existingItem.imageData == newItem.imageData
+            }
             if existingItem.contentType == .mixed {
                 // Mixed items carry multiple independent representations; any difference in
                 // image bytes or file path list means it's a distinct clip.
@@ -977,12 +1170,10 @@ final class ClipboardManager: ObservableObject {
                 return true
             }
             if existingIsRelaxedText && newIsRelaxedText {
-                let existingHasRichText = existingItem.richTextData != nil
-                let newHasRichText = newItem.richTextData != nil
-                if existingHasRichText != newHasRichText {
-                    return true
-                }
-                return existingItem.richTextData == newItem.richTextData
+                // The words are the identity. Comparing formatting bytes too split every copy
+                // from sources that stamp each one with a fresh ID (WPS / 金山文档 embeds a new
+                // `ksDocClipboardId` GUID per copy); the latest formatting is kept on reuse.
+                return true
             }
             // For non-text, non-image types (.link, .code, .phone, .color,
             // .file, .email, .video, .audio, .document, ...), the content
@@ -1017,14 +1208,69 @@ final class ClipboardManager: ObservableObject {
         guard webPreviewEnabled, !showLinkURL else { return }
 
         let targetItem = item
+        let urlString = item.content
         Task {
-            let metadata = await LinkMetadataFetcher.shared.fetchMetadata(urlString: targetItem.content)
+            let metadata = await LinkMetadataFetcher.shared.fetchMetadata(urlString: urlString)
             await MainActor.run {
+                // 抓取期间条目可能被删、或被用户改成了别的链接：旧网址的标题不能写回去
+                guard !targetItem.isGone, targetItem.content == urlString else { return }
                 if let title = metadata.title { targetItem.linkTitle = title }
                 if let favicon = metadata.faviconData { targetItem.faviconData = favicon }
                 ClipItemStore.saveAndNotifyContent(context)
             }
         }
+    }
+
+    // MARK: - Edit
+
+    /// 用户在主窗口 / 快捷面板里改写了条目文字。内容没变（或改成空）时什么都不做、返回 false
+    /// ——只是进编辑看一眼就粘贴，不该把富文本格式丢掉。
+    ///
+    /// 富文本和剪贴板快照一起清掉：粘贴时快照会被原样回放（`writeToPasteboard`），留着它
+    /// 贴出来的还是改之前的内容。
+    ///
+    /// 类型：文本和代码之间不重判（用户可能在属性里手动切过，改一个字就被识别器翻回去不合理）；
+    /// 链接 / 颜色 / 电话这类格式型的按新内容重判，改完不再是链接的不能还挂着旧网页标题。
+    /// 识别成文件路径的仍按文本存：用户改的是一段文字，粘出去变成文件不对。
+    @discardableResult
+    func applyEditedContent(_ newContent: String, to item: ClipItem, context: ModelContext) -> Bool {
+        guard !item.isGone, !newContent.isEmpty, newContent != item.content else { return false }
+
+        let oldType = item.contentType
+        let detected = detectContentType(newContent)
+        var newType: ClipContentType = detected.type == .file ? .text : detected.type
+        let textual: Set<ClipContentType> = [.text, .code]
+        if textual.contains(oldType), textual.contains(newType) {
+            newType = oldType
+        } else {
+            item.codeLanguage = newType == .code ? detected.language : nil
+        }
+
+        if oldType == .link || newType == .link {
+            item.linkTitle = nil
+            item.faviconData = nil
+        }
+        if newType == .link, DataImageURI.isBase64DataImageURI(newContent) {
+            item.imageData = DataImageURI.decodedImageData(from: newContent)
+        } else if oldType == .link {
+            item.imageData = nil
+        }
+
+        item.content = newContent
+        item.contentType = newType
+        item.richTextData = nil
+        item.richTextType = nil
+        item.pasteboardSnapshot = nil
+        item.displayTitle = ClipItem.buildTitle(content: newContent, contentType: newType, imageData: item.imageData)
+        // 只升不降：手动标过敏感的，改个错字不该被识别器悄悄取消
+        item.isSensitive = item.isSensitive || SensitiveDetector.isSensitive(
+            content: newContent,
+            sourceAppBundleID: item.sourceAppBundleID,
+            contentType: newType
+        )
+        ClipItemStore.saveAndNotifyContent(context)
+        refreshLinkMetadataIfNeeded(for: item, in: context)
+        return true
     }
 
     private func enqueueOCRIfNeeded(for item: ClipItem) {
@@ -1089,6 +1335,7 @@ final class ClipboardManager: ObservableObject {
     }
 
     private func cleanExpiredItems(in context: ModelContext) {
+        purgeExpiredSensitiveItems(in: context)
         guard let cutoff = ProManager.shared.retentionCutoffDate else { return }
 
         let candidates = Self.fetchExpiredCandidates(in: context, cutoff: cutoff)
@@ -1097,7 +1344,47 @@ final class ClipboardManager: ObservableObject {
         let preservedGroupNames = SmartGroupRetention.preservedGroupNames(in: context)
         let expiredItems = SmartGroupRetention.filterDeletableItems(candidates, preservedGroupNames: preservedGroupNames)
         guard !expiredItems.isEmpty else { return }
+        deleteExpired(expiredItems, in: context)
+    }
 
+    // MARK: - Sensitive retention
+
+    private var sensitiveSweepTimer: Timer?
+
+    /// Sweeps expired sensitive clips once a minute while a sensitive retention is
+    /// set — a 10-minute limit can't wait for the next copy to be enforced. Cheap to
+    /// call repeatedly; starts / stops the timer only when the setting flips.
+    func updateSensitiveSweep() {
+        let active = SensitiveRetention.minutes > 0
+        if active, sensitiveSweepTimer == nil {
+            sensitiveSweepTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in self?.sweepSensitiveNow() }
+            }
+            sweepSensitiveNow()
+        } else if !active, let timer = sensitiveSweepTimer {
+            timer.invalidate()
+            sensitiveSweepTimer = nil
+        }
+    }
+
+    func sweepSensitiveNow() {
+        guard let container = modelContainer else { return }
+        let context = container.mainContext
+        if purgeExpiredSensitiveItems(in: context) > 0 {
+            ClipItemStore.saveAndNotify(context)
+        }
+    }
+
+    @discardableResult
+    func purgeExpiredSensitiveItems(in context: ModelContext) -> Int {
+        guard let cutoff = SensitiveRetention.cutoff() else { return 0 }
+        let expired = SensitiveRetention.expiredItems(in: context, cutoff: cutoff)
+        guard !expired.isEmpty else { return 0 }
+        deleteExpired(expired, in: context)
+        return expired.count
+    }
+
+    private func deleteExpired(_ expiredItems: [ClipItem], in context: ModelContext) {
         let hasGroupedItems = expiredItems.contains { $0.groupName != nil }
         // Expiry is permanent (never undoable) — reclaim each clip's original-bytes cache
         // file now rather than leaving it for the next launch sweep.
@@ -1549,13 +1836,12 @@ final class ClipboardManager: ObservableObject {
 
     /// Paste multiple items in display order via sequential Cmd+V operations.
     /// Consecutive file items are merged into one paste; each text/image gets its own paste to preserve formatting.
-    /// Apps that don't handle rich text paste well — downgrade to plain text for merging.
-    /// This is a superset of TEXT_ONLY_APPS, adding IM apps that can receive files but need rich text downgrade.
-    private static let PLAIN_TEXT_ONLY_APPS: Set<String> = TEXT_ONLY_APPS.union([
-        // IM — can receive files, only need rich text downgrade
+    /// IM apps: can receive files but need rich text downgraded.
+    private static let IM_APPS: Set<String> = [
         "com.tencent.xinWeChat",          // WeChat
         "com.tencent.qq",                 // QQ
-        "com.alibaba.DingTalkMac",        // DingTalk
+        "com.alibaba.DingTalkMac",        // DingTalk (older builds)
+        "5ZSL2CJU2T.com.dingtalk.mac",    // DingTalk
         "com.electron.lark",              // Feishu/Lark
         "com.apple.iChat",               // Messages
         "com.microsoft.teams2",           // Teams
@@ -1566,11 +1852,19 @@ final class ClipboardManager: ObservableObject {
         "org.whispersystems.signal-desktop", // Signal
         "jp.naver.line.mac",              // Line
         "us.zoom.xos",                    // Zoom
-    ])
+    ]
+
+    /// Apps that don't handle rich text paste well — downgrade to plain text for merging.
+    private static let PLAIN_TEXT_ONLY_APPS: Set<String> = TEXT_ONLY_APPS.union(IM_APPS)
 
     private func shouldDowngradeRichText(targetApp: NSRunningApplication?) -> Bool {
         guard let bundleID = targetApp?.bundleIdentifier else { return false }
         return Self.PLAIN_TEXT_ONLY_APPS.contains(bundleID)
+    }
+
+    private func isIMApp(_ targetApp: NSRunningApplication?) -> Bool {
+        guard let bundleID = targetApp?.bundleIdentifier else { return false }
+        return Self.IM_APPS.contains(bundleID)
     }
 
     /// Whether the target app is a text-only environment that cannot accept file URLs or image data.
@@ -1586,10 +1880,19 @@ final class ClipboardManager: ObservableObject {
     }
 
     func pasteMultiple(_ items: [ClipItem], forceNewLine: Bool = false, targetApp: NSRunningApplication? = nil) {
+        let imagesAsFiles = targetApp?.bundleIdentifier.map(FileURLPaste.targetBundleIDs.contains) ?? false
+        if imagesAsFiles, let paths = FileURLPaste.filePaths(for: items) {
+            pasteFilesAtOnce(paths, forceNewLine: forceNewLine, targetPid: targetApp?.processIdentifier)
+            return
+        }
+
         let downgrade = shouldDowngradeRichText(targetApp: targetApp)
         let textOnly = isTextOnlyApp(targetApp)
         let terminal = isTerminalApp(targetApp)
-        let groups = buildPasteGroups(items, downgradeRichText: downgrade)
+        let ungrouped = buildPasteGroups(items, downgradeRichText: downgrade, imagesAsFiles: imagesAsFiles)
+        // A chat input should end up the way pasting one at a time by hand leaves it: no
+        // breaks between pieces. Elsewhere text gets its own lines.
+        let groups = isIMApp(targetApp) ? ungrouped : Self.insertingLineBreaks(ungrouped)
 
         SoundManager.playPaste()
         let targetPid = targetApp?.processIdentifier
@@ -1597,10 +1900,6 @@ final class ClipboardManager: ObservableObject {
             for (index, group) in groups.enumerated() {
                 if index > 0 {
                     try? await Task.sleep(for: .milliseconds(150))
-                    // Insert a newline between groups so heterogeneous pastes (text + file,
-                    // text + image, etc.) don't glue together on the same line.
-                    simulateReturn(targetPid: targetPid)
-                    try? await Task.sleep(for: .milliseconds(80))
                 }
 
                 let pasteboard = NSPasteboard.general
@@ -1642,15 +1941,82 @@ final class ClipboardManager: ObservableObject {
                 skipRelayMonitorIfActive()
                 try? await Task.sleep(for: PASTE_SIMULATION_DELAY)
                 simulateCommandV(targetPid: targetPid)
+
+                if let targetPid, index < groups.count - 1 || forceNewLine {
+                    await waitForTargetToCatchUp(targetPid)
+                }
             }
             if forceNewLine {
-                try? await Task.sleep(for: .milliseconds(100))
+                if targetPid == nil { try? await Task.sleep(for: .milliseconds(100)) }
                 simulateReturn(targetPid: targetPid)
             }
         }
     }
 
-    private enum PasteGroup {
+    /// Every item as a file, all in one pasteboard write and one ⌘V — see `FileURLPaste`.
+    private func pasteFilesAtOnce(_ paths: [String], forceNewLine: Bool, targetPid: pid_t?) {
+        SoundManager.playPaste()
+        Task { @MainActor in
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            writeFileURLsToPasteboard(pasteboard, paths: paths)
+            pasteboard.markAsPasteMemoWrite()
+            lastChangeCount = pasteboard.changeCount
+            skipRelayMonitorIfActive()
+            try? await Task.sleep(for: PASTE_SIMULATION_DELAY)
+            simulateCommandV(targetPid: targetPid)
+            if forceNewLine {
+                if let targetPid { await waitForTargetToCatchUp(targetPid) }
+                simulateReturn(targetPid: targetPid)
+            }
+        }
+    }
+
+    /// Wait until the target's main thread answers an accessibility request. Apps handle a paste
+    /// on that thread, so an answer means it has worked through what was queued before — our ⌘V
+    /// included — and the next pasteboard write won't land under a paste still pending (WeChat
+    /// pasted the next group twice and lost the earlier one). A second request after a pause
+    /// covers work the paste queued right behind itself, like inserting an image. A busy target
+    /// is waited on, an idle one costs about the pause; bounded so a hung one can't stall us.
+    private func waitForTargetToCatchUp(_ pid: pid_t) async {
+        for pause in [Duration.zero, TARGET_SETTLE_PAUSE] {
+            try? await Task.sleep(for: pause)
+            await Task.detached(priority: .userInitiated) {
+                let app = AXUIElementCreateApplication(pid)
+                AXUIElementSetMessagingTimeout(app, TARGET_CATCH_UP_TIMEOUT)
+                var focused: CFTypeRef?
+                _ = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focused)
+            }.value
+        }
+    }
+
+    /// Line breaks between paste groups, written as text — never a synthetic Return: in a chat
+    /// input Return sends, and no app list can tell which inputs those are (a stale bundle ID
+    /// once sent DingTalk's first image on its own). A break goes wherever text meets anything
+    /// else; images and files next to each other stay on one line. It's folded into a
+    /// neighbouring plain-text group when there is one, otherwise pasted as its own "\n".
+    /// Known chat apps skip this altogether — see `pasteMultiple`.
+    static func insertingLineBreaks(_ groups: [PasteGroup]) -> [PasteGroup] {
+        var result: [PasteGroup] = []
+        for group in groups {
+            guard let previous = result.last, !(previous.isMedia && group.isMedia) else {
+                result.append(group)
+                continue
+            }
+            if case .text(let content, nil, _) = previous {
+                result[result.count - 1] = .text(content + "\n", richTextData: nil, richTextType: nil)
+                result.append(group)
+            } else if case .text(let content, nil, _) = group {
+                result.append(.text("\n" + content, richTextData: nil, richTextType: nil))
+            } else {
+                result.append(.text("\n", richTextData: nil, richTextType: nil))
+                result.append(group)
+            }
+        }
+        return result
+    }
+
+    enum PasteGroup {
         case files([String])
         case text(String, richTextData: Data?, richTextType: String?)
         case image(Data)
@@ -1658,10 +2024,19 @@ final class ClipboardManager: ObservableObject {
         /// pipeline (snapshot restore, mixed handling, etc.) is reused verbatim instead of
         /// reimplemented here. Prevents drift between single-paste and multi-paste behaviour.
         case clipItem(ClipItem)
+
+        var isMedia: Bool {
+            switch self {
+            case .files, .image: true
+            case .text, .clipItem: false
+            }
+        }
     }
 
     /// Group consecutive same-type items: files merge; texts and images each get their own group to preserve formatting.
-    private func buildPasteGroups(_ items: [ClipItem], downgradeRichText: Bool = false) -> [PasteGroup] {
+    /// `imagesAsFiles`: a raw image with a saved original goes out as that file (merging with
+    /// neighbouring files) rather than as image data — see `FileURLPaste`.
+    private func buildPasteGroups(_ items: [ClipItem], downgradeRichText: Bool = false, imagesAsFiles: Bool = false) -> [PasteGroup] {
         var groups: [PasteGroup] = []
         for item in items {
             // Items carrying a full pasteboard snapshot or multi-representation (.mixed) content
@@ -1672,8 +2047,10 @@ final class ClipboardManager: ObservableObject {
                 groups.append(.clipItem(item))
                 continue
             }
-            if isFileBasedContent(item) {
-                let paths = item.content.components(separatedBy: "\n").filter { !$0.isEmpty }
+            let originalFile = imagesAsFiles && item.contentType == .image && item.content == "[Image]"
+                ? item.sourceImageFileURL?.path : nil
+            if isFileBasedContent(item) || originalFile != nil {
+                let paths = originalFile.map { [$0] } ?? item.content.components(separatedBy: "\n").filter { !$0.isEmpty }
                 if case .files = groups.last {
                     if case .files(let existing) = groups.last {
                         groups[groups.count - 1] = .files(existing + paths)
@@ -1834,8 +2211,27 @@ final class ClipboardManager: ObservableObject {
         app?.bundleIdentifier == "com.apple.finder"
     }
 
-    func getFinderSelectedFolder() -> URL? {
-        let script = """
+    enum FinderFolderLookup {
+        case folder(URL)
+        /// 刚弹过授权框，用户没允许（拒绝，或 60 秒内没点）。面板已经收起，调用方别再退回去
+        /// 粘贴。
+        case consentNotGranted
+        /// 访达在限时内没回话。单独拎出来是为了让调用方提示用户，而不是退回去往访达里
+        /// 粘图片数据——访达不收，等于按了回车什么都没发生。
+        case notResponding
+        case unavailable
+    }
+
+    /// 同步 Apple Event，调用方都在主线程，所以两头都不能无限等（#92）：
+    /// - 还没授权时，访达收到事件要先等用户点系统的「允许控制访达」。授权框会被 .statusBar
+    ///   层级的快捷面板盖住，用户看不到，主线程就干等到 AppleScript 默认的 120 秒超时。所以
+    ///   发事件前先调 `beforeConsentPrompt` 收起面板，再同步等用户点：点了允许，这次粘贴
+    ///   接着完成。上限 60 秒。
+    /// - 已授权时限 3 秒，访达卡住（Spotlight 重建索引、LaunchServices 重启）也拖不死主线程。
+    func getFinderSelectedFolder(beforeConsentPrompt: () -> Void) -> FinderFolderLookup {
+        let consentPending = Self.finderAutomationConsentPending()
+        if consentPending { beforeConsentPrompt() }
+        let body = """
         tell application "Finder"
             if (count of windows) > 0 then
                 set theSelection to selection
@@ -1854,11 +2250,24 @@ final class ClipboardManager: ObservableObject {
             end if
         end tell
         """
-        guard let appleScript = NSAppleScript(source: script) else { return nil }
+        let script = "with timeout of \(consentPending ? 60 : 3) seconds\n\(body)\nend timeout"
+        let failure: FinderFolderLookup = consentPending ? .consentNotGranted : .unavailable
+        guard let appleScript = NSAppleScript(source: script) else { return failure }
         var error: NSDictionary?
         let result = appleScript.executeAndReturnError(&error)
-        guard error == nil, let path = result.stringValue else { return nil }
-        return URL(fileURLWithPath: path)
+        if let error {
+            let code = (error[NSAppleScript.errorNumber] as? NSNumber)?.intValue
+            return code == Int(errAETimeout) && !consentPending ? .notResponding : failure
+        }
+        guard let path = result.stringValue else { return failure }
+        return .folder(URL(fileURLWithPath: path))
+    }
+
+    /// 只查不问：还没决定过「允许 PasteMemo 控制访达」时为 true。
+    private static func finderAutomationConsentPending() -> Bool {
+        let target = NSAppleEventDescriptor(bundleIdentifier: "com.apple.finder")
+        let status = AEDeterminePermissionToAutomateTarget(target.aeDesc, typeWildCard, typeWildCard, false)
+        return status == OSStatus(errAEEventWouldRequireUserConsent)
     }
 
     func saveImageToFolder(
@@ -2071,6 +2480,10 @@ extension ClipboardManager: ClipboardControllable {
             }
         }
         applyMetadataActions(actions, to: item, context: context)
+    }
+
+    private static func soundNames(in actions: [RuleAction]) -> [String] {
+        actions.compactMap { if case .playSound(let name) = $0, !name.isEmpty { return name }; return nil }
     }
 
     /// Metadata actions live in `ActionExecutor`; kept as a forwarder so the capture

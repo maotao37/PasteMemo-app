@@ -169,7 +169,6 @@
 "settings.quickPanelTabTypes" = "Categorías de la barra de pestañas";
 "settings.quickPanelTabTypes.hint" = "Arrastra para reordenar. Desmarcar oculta la pestaña en el panel rápido; la barra lateral no cambia.";
 "settings.quickPanelTabTypes.reset" = "Restablecer";
-"settings.history" = "Historial";
 "settings.retentionDays" = "Conservar historial";
 "settings.retentionDays.forever" = "Para siempre";
 "settings.retentionDays.days" = "%d días";
@@ -300,6 +299,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "Datos";
+"dataPorter.importExport" = "Importar y exportar";
 "dataPorter.export" = "Exportar datos";
 "dataPorter.compressing" = "Comprimiendo...";
 "dataPorter.import" = "Importar datos";
@@ -407,7 +407,6 @@
 
 "filter.sensitive" = "Sensible";
 
-"settings.clearData" = "Borrar datos";
 
 "settings.sound" = "Sonido";
 "settings.sound.enabled" = "Efectos de sonido";
@@ -611,6 +610,7 @@ Usa %@ para pegar uno por uno.";
 "detail.fileCount" = "Archivos";
 "detail.fileStatus" = "Estado";
 "file.unavailable.missing" = "El archivo ya no existe";
+"finder.notResponding" = "Finder no responde";
 "file.unavailable.denied" = "Sin permiso de acceso";
 "detail.format" = "Formato";
 "detail.host" = "Host";
@@ -689,12 +689,6 @@ Usa %@ para pegar uno por uno.";
 "stats.clips" = "clips";
 
 /* Settings - Clear Data */
-"settings.clearData.1month" = "Más de 1 mes";
-"settings.clearData.1year" = "Más de 1 año";
-"settings.clearData.3months" = "Más de 3 meses";
-"settings.clearData.6months" = "Más de 6 meses";
-"settings.clearData.all" = "Eliminar todo";
-"settings.clearData.result" = "%d elementos eliminados";
 
 /* Settings - Double Tap */
 "settings.doubleTap" = "Doble pulsación para abrir";
@@ -745,7 +739,7 @@ Usa %@ para pegar uno por uno.";
 "automation.rule.triggerMode" = "Activador";
 "automation.rule.triggerMode.automatic" = "Automático";
 "automation.rule.triggerMode.manual" = "Solo manual";
-"automation.rule.triggerMode.shortcutManualOnly" = "Las reglas con «Ejecutar atajo», «Reescritura IA» o «Cerrar el panel rápido» solo funcionan con activación manual";
+"automation.rule.triggerMode.shortcutManualOnly" = "Contiene acciones solo manuales: solo activación manual";
 "automation.rule.outputMode" = "El resultado va a";
 "automation.rule.outputMode.replaceItem" = "Reemplazar este elemento";
 "automation.rule.outputMode.newItem" = "Nuevo elemento";
@@ -1153,3 +1147,134 @@ Usa %@ para pegar uno por uno.";
 "stats.runtime.memory.hint" = "Physical memory footprint";
 "stats.runtime.monitoring" = "Live";
 "stats.runtime.title" = "Runtime Resources";
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "Convertir formato de color";
+"automation.action.extractVerificationCode" = "Conservar solo el código de verificación";
+"automation.action.extractLinks" = "Conservar solo los enlaces";
+"automation.action.runOCR" = "Reconocer texto de la imagen";
+"automation.action.deleteItem" = "Eliminar el elemento original";
+"automation.action.playSound" = "Reproducir sonido";
+"automation.action.section.extract" = "Extraer y reconocer";
+"automation.action.section.open" = "Abrir y relevo";
+"automation.rule.outputMode.saveToFile" = "Guardar en carpeta";
+"automation.rule.outputMode.postWebhook" = "Enviar a webhook";
+"automation.output.folder.empty" = "Ninguna carpeta seleccionada";
+"automation.output.folder.choose" = "Elegir…";
+"automation.output.folder.invalid" = "No se encuentra la carpeta";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "Envía JSON (content, contentType, sourceApp, rule, createdAt). Los elementos sensibles nunca se envían.";
+"automation.output.webhook.invalidURL" = "La dirección debe empezar por http:// o https://";
+"automation.output.webhook.tooLarge" = "Demasiado largo, no se envió";
+"automation.output.webhook.failedStatus" = "Error al enviar (HTTP %d)";
+"automation.output.webhook.failed" = "Error al enviar: %@";
+"automation.output.webhook.sent" = "Enviado";
+"automation.output.webhook.refused" = "Los elementos sensibles no se envían";
+"automation.output.webhook.textOnly" = "Solo se puede enviar texto";
+"automation.output.saved" = "Guardado en «%@»";
+"automation.output.saveFailed" = "No se pudo guardar. Comprueba que la carpeta sigue existiendo.";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Codificar en Base64";
+"automation.action.base64Decode" = "Decodificar Base64";
+"automation.action.jsonFormat" = "Formatear JSON";
+"automation.action.jsonMinify" = "Compactar JSON";
+"automation.action.toCamelCase" = "Convertir a camelCase";
+"automation.action.toSnakeCase" = "Convertir a snake_case";
+"automation.action.toHalfWidth" = "Ancho completo a medio ancho";
+"automation.action.toFullWidth" = "Medio ancho a ancho completo";
+"automation.action.simplifiedToTraditional" = "Chino simplificado a tradicional";
+"automation.action.removeDuplicateLines" = "Eliminar líneas duplicadas";
+"automation.action.sortLines" = "Ordenar líneas";
+"automation.action.sortLines.ascending" = "Ascendente";
+"automation.action.sortLines.descending" = "Descendente";
+"automation.action.joinLines" = "Unir líneas";
+"automation.action.joinLines.space" = "Espacio";
+"automation.action.joinLines.none" = "Sin separador";
+"automation.action.removeHTMLTags" = "Quitar etiquetas HTML";
+"automation.action.section.format" = "Convertir";
+"automation.action.section.lines" = "Líneas";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "Contenido";
+"automation.condition.section.app" = "Apps";
+"automation.condition.section.state" = "Estado del elemento";
+"automation.condition.section.time" = "Hora";
+"automation.condition.targetApp" = "Pegar en";
+"automation.condition.targetApp.help" = "Solo se conoce en el panel rápido y al pegar con relevo. Las reglas que se activan al copiar nunca lo cumplen.";
+"automation.condition.contentLength" = "Número de caracteres";
+"automation.condition.lineCount" = "Número de líneas";
+"automation.condition.range.min" = "Mín.";
+"automation.condition.range.max" = "Máx.";
+"automation.condition.range.any" = "Cualquiera";
+"automation.condition.isPinned" = "Está fijado";
+"automation.condition.isSensitive" = "Está marcado como sensible";
+"automation.condition.inGroup" = "El grupo es";
+"automation.condition.inGroup.any" = "Cualquier grupo";
+"automation.condition.timeOfDay" = "Franja horaria";
+"automation.condition.weekday" = "Día de la semana";
+"automation.condition.negated" = "No se cumple";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "Conservar elementos sensibles";
+"settings.privacy.sensitiveRetention.followHistory" = "Igual que el historial";
+"settings.privacy.sensitiveRetention.minutes" = "%d minutos";
+"settings.privacy.sensitiveRetention.hours" = "%d h";
+"settings.privacy.sensitiveRetention.hint" = "Se cuenta desde la última copia o pegado y después se elimina. Los elementos fijados y los de grupos que se conservan siempre se mantienen.";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "Se eliminarán %d elementos sensibles";
+
+/* Storage */
+"settings.storage" = "Almacenamiento";
+"storage.manage.title" = "Gestionar almacenamiento";
+"storage.manage" = "Gestionar";
+"storage.recordCount" = "%@ elementos";
+"storage.scanFailed" = "No se pudieron leer los datos";
+"storage.scanning" = "Calculando...";
+"storage.part.originals" = "Originales";
+"storage.part.previews" = "Miniaturas";
+"storage.part.richText" = "Texto enriquecido";
+"storage.byType" = "Por tipo";
+"storage.itemCount" = "%@ elementos";
+"storage.autoClean" = "Limpieza automática";
+"storage.optimize" = "Optimizar";
+"storage.tiff.title" = "Convertir originales TIFF a PNG (sin pérdida)";
+"storage.tiff.detail" = "%1$@ imágenes · %2$@";
+"storage.tiff.progress" = "Convirtiendo %1$@ de %2$@";
+"storage.tiff.result" = "%1$@ imágenes convertidas, %2$@ ahorrados";
+"storage.tiff.kept" = "%@ imágenes no se pueden convertir sin pérdida y siguen en TIFF";
+"storage.sourceCount" = "%@ orígenes";
+"storage.grouping.source" = "Por origen";
+"storage.typeCount" = "%@ tipos";
+"storage.column.type" = "Tipo";
+"storage.typeSelectionSummary" = "%1$@ tipos seleccionados · %2$@ elementos · %3$@";
+"storage.searchSources" = "Buscar orígenes";
+"storage.allSources" = "Todos los orígenes";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "Origen";
+"storage.column.latest" = "Última copia";
+"storage.column.count" = "Elementos";
+"storage.column.size" = "Tamaño";
+"storage.protectedNote" = "Se eliminan elementos de PasteMemo, no tus archivos originales. Los elementos fijados y los de grupos permanentes nunca se eliminan.";
+"storage.protectedExcluded" = "Sin contar %@ elementos fijados o de grupos permanentes";
+"storage.deleteRecords" = "Eliminar elementos";
+"storage.delete.scope" = "Solo se eliminan los elementos de PasteMemo y las copias que guarda; tus archivos originales no se tocan. No se puede deshacer.";
+"storage.selectionSummary" = "%1$@ orígenes seleccionados · %2$@ elementos · %3$@";
+"storage.delete.confirm" = "¿Eliminar %@ elementos?";
+"storage.deleting" = "Eliminando...";
+"storage.empty" = "No hay nada que limpiar";
+"storage.time.all" = "Todo el tiempo";
+"storage.time.1month" = "Anterior a 1 mes";
+"storage.time.3months" = "Anterior a 3 meses";
+"storage.time.6months" = "Anterior a 6 meses";
+"storage.time.1year" = "Anterior a 1 año";
+"storage.time.custom" = "Rango personalizado...";
+"storage.type.all" = "Todos los tipos";
+"storage.listSeparator" = ", ";
+"storage.sort.size" = "Más grandes primero";
+"storage.sort.latest" = "Más recientes";
+"storage.selectAll" = "Seleccionar todo";
+"storage.deselectAll" = "Deseleccionar todo";
+"storage.itemSelectionSummary" = "%1$@ seleccionados · %2$@";
+"storage.custom.title" = "Rango personalizado";
+"storage.custom.from" = "Desde";
+"storage.custom.to" = "Hasta";

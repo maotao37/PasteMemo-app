@@ -151,7 +151,6 @@
 "settings.quickPanelTabTypes" = "Tab bar categories";
 "settings.quickPanelTabTypes.hint" = "Drag to reorder. Unchecking hides the tab in the Quick Panel; the main window sidebar is unaffected.";
 "settings.quickPanelTabTypes.reset" = "Reset";
-"settings.history" = "History";
 "settings.retentionDays" = "Keep History";
 "settings.retentionDays.forever" = "Forever";
 "settings.retentionDays.days" = "%d days";
@@ -233,6 +232,7 @@
 "detail.fileCount" = "Files";
 "detail.fileStatus" = "Status";
 "file.unavailable.missing" = "File no longer exists";
+"finder.notResponding" = "Finder isn't responding";
 "file.unavailable.denied" = "No permission to access";
 "detail.host" = "Host";
 "detail.url" = "URL";
@@ -444,6 +444,7 @@
 
 /* Data Import/Export */
 "dataPorter.section" = "Data";
+"dataPorter.importExport" = "Import & Export";
 "dataPorter.export" = "Export Data";
 "dataPorter.compressing" = "Compressing...";
 "dataPorter.import" = "Import Data";
@@ -519,7 +520,7 @@
 "automation.rule.triggerMode" = "Trigger";
 "automation.rule.triggerMode.automatic" = "Automatic";
 "automation.rule.triggerMode.manual" = "Manual only";
-"automation.rule.triggerMode.shortcutManualOnly" = "Rules with Run Shortcut, AI rewrite or Close Quick Panel only work with manual trigger";
+"automation.rule.triggerMode.shortcutManualOnly" = "This rule has actions that only run manually, so it can only be triggered manually";
 "automation.rule.outputMode" = "Result goes to";
 "automation.rule.outputMode.replaceItem" = "Replace this item";
 "automation.rule.outputMode.newItem" = "New item";
@@ -737,13 +738,6 @@
 
 "filter.sensitive" = "Sensitive";
 
-"settings.clearData" = "Clear Data";
-"settings.clearData.1month" = "Older than 1 month";
-"settings.clearData.3months" = "Older than 3 months";
-"settings.clearData.6months" = "Older than 6 months";
-"settings.clearData.1year" = "Older than 1 year";
-"settings.clearData.all" = "Delete all";
-"settings.clearData.result" = "%d items deleted";
 
 "settings.sound" = "Sound";
 "settings.sound.enabled" = "Sound effects";
@@ -1096,3 +1090,134 @@
 "stats.directory.temporary" = "Temporary Files";
 "stats.directory.other" = "Other Data";
 
+
+/* Automation: extract / open / outputs */
+"automation.action.convertColor" = "Convert Color Format";
+"automation.action.extractVerificationCode" = "Keep Only Verification Code";
+"automation.action.extractLinks" = "Keep Only Links";
+"automation.action.runOCR" = "Recognize Text in Image";
+"automation.action.deleteItem" = "Delete Original Clip";
+"automation.action.playSound" = "Play Sound";
+"automation.action.section.extract" = "Extract & Recognize";
+"automation.action.section.open" = "Open & Relay";
+"automation.rule.outputMode.saveToFile" = "Save to Folder";
+"automation.rule.outputMode.postWebhook" = "Send to Webhook";
+"automation.output.folder.empty" = "No folder selected";
+"automation.output.folder.choose" = "Choose…";
+"automation.output.folder.invalid" = "Folder not found";
+"automation.output.webhook.placeholder" = "https://";
+"automation.output.webhook.help" = "Sends JSON (content, contentType, sourceApp, rule, createdAt). Sensitive clips are never sent.";
+"automation.output.webhook.invalidURL" = "The address must start with http:// or https://";
+"automation.output.webhook.tooLarge" = "Too long to send";
+"automation.output.webhook.failedStatus" = "Send failed (HTTP %d)";
+"automation.output.webhook.failed" = "Send failed: %@";
+"automation.output.webhook.sent" = "Sent";
+"automation.output.webhook.refused" = "Sensitive clips aren’t sent";
+"automation.output.webhook.textOnly" = "Only text can be sent";
+"automation.output.saved" = "Saved to “%@”";
+"automation.output.saveFailed" = "Couldn’t save. Check that the folder is still there.";
+
+/* Automation: text toolbox */
+"automation.action.base64Encode" = "Base64 Encode";
+"automation.action.base64Decode" = "Base64 Decode";
+"automation.action.jsonFormat" = "Format JSON";
+"automation.action.jsonMinify" = "Minify JSON";
+"automation.action.toCamelCase" = "To camelCase";
+"automation.action.toSnakeCase" = "To snake_case";
+"automation.action.toHalfWidth" = "Full-Width to Half-Width";
+"automation.action.toFullWidth" = "Half-Width to Full-Width";
+"automation.action.simplifiedToTraditional" = "Simplified to Traditional Chinese";
+"automation.action.removeDuplicateLines" = "Remove Duplicate Lines";
+"automation.action.sortLines" = "Sort Lines";
+"automation.action.sortLines.ascending" = "A to Z";
+"automation.action.sortLines.descending" = "Z to A";
+"automation.action.joinLines" = "Join Lines";
+"automation.action.joinLines.space" = "Space";
+"automation.action.joinLines.none" = "Nothing";
+"automation.action.removeHTMLTags" = "Remove HTML Tags";
+"automation.action.section.format" = "Convert";
+"automation.action.section.lines" = "Lines";
+
+/* Automation: conditions */
+"automation.condition.section.content" = "Content";
+"automation.condition.section.app" = "Apps";
+"automation.condition.section.state" = "Clip State";
+"automation.condition.section.time" = "Time";
+"automation.condition.targetApp" = "Pasting into";
+"automation.condition.targetApp.help" = "Known only in the Quick Panel and when relay-pasting. Rules triggered on copy never meet this.";
+"automation.condition.contentLength" = "Character count";
+"automation.condition.lineCount" = "Line count";
+"automation.condition.range.min" = "Min";
+"automation.condition.range.max" = "Max";
+"automation.condition.range.any" = "Any";
+"automation.condition.isPinned" = "Is pinned";
+"automation.condition.isSensitive" = "Is marked sensitive";
+"automation.condition.inGroup" = "Group is";
+"automation.condition.inGroup.any" = "Any group";
+"automation.condition.timeOfDay" = "Time of day";
+"automation.condition.weekday" = "Day of week";
+"automation.condition.negated" = "Not met";
+
+/* Privacy: sensitive retention */
+"settings.privacy.sensitiveRetention" = "Keep sensitive clips";
+"settings.privacy.sensitiveRetention.followHistory" = "Same as history";
+"settings.privacy.sensitiveRetention.minutes" = "%d minutes";
+"settings.privacy.sensitiveRetention.hours" = "%d hour(s)";
+"settings.privacy.sensitiveRetention.hint" = "Counted from the last copy or paste, then deleted. Pinned clips and clips in groups kept permanently stay.";
+"settings.privacy.sensitiveRetention.cleanConfirm" = "%d sensitive clips will be deleted";
+
+/* Storage */
+"settings.storage" = "Storage";
+"storage.manage.title" = "Manage Storage";
+"storage.manage" = "Manage";
+"storage.recordCount" = "%@ items";
+"storage.scanFailed" = "Couldn't read the data";
+"storage.scanning" = "Calculating...";
+"storage.part.originals" = "Originals";
+"storage.part.previews" = "Thumbnails";
+"storage.part.richText" = "Rich text";
+"storage.byType" = "By Type";
+"storage.itemCount" = "%@ items";
+"storage.autoClean" = "Auto Cleanup";
+"storage.optimize" = "Optimize";
+"storage.tiff.title" = "Convert TIFF originals to PNG (lossless)";
+"storage.tiff.detail" = "%1$@ images · %2$@";
+"storage.tiff.progress" = "Converting %1$@ of %2$@";
+"storage.tiff.result" = "Converted %1$@ images, saved %2$@";
+"storage.tiff.kept" = "%@ images can't be converted losslessly and stay TIFF";
+"storage.sourceCount" = "%@ sources";
+"storage.grouping.source" = "By Source";
+"storage.typeCount" = "%@ types";
+"storage.column.type" = "Type";
+"storage.typeSelectionSummary" = "%1$@ types selected · %2$@ items · %3$@";
+"storage.searchSources" = "Search sources";
+"storage.allSources" = "All Sources";
+"storage.sourceWithCount" = "%1$@ · %2$@";
+"storage.column.source" = "Source";
+"storage.column.latest" = "Last Copied";
+"storage.column.count" = "Items";
+"storage.column.size" = "Size";
+"storage.protectedNote" = "Deleting removes items from PasteMemo; your original files aren't touched. Pinned items and items in permanent groups are never deleted.";
+"storage.protectedExcluded" = "Not counting %@ pinned or permanent-group items";
+"storage.deleteRecords" = "Delete Items";
+"storage.delete.scope" = "Only PasteMemo's items and the copies it keeps are deleted; your original files aren't touched. This can't be undone.";
+"storage.selectionSummary" = "%1$@ sources selected · %2$@ items · %3$@";
+"storage.delete.confirm" = "Delete %@ items?";
+"storage.deleting" = "Deleting...";
+"storage.empty" = "Nothing to clean up";
+"storage.time.all" = "All Time";
+"storage.time.1month" = "Older than 1 month";
+"storage.time.3months" = "Older than 3 months";
+"storage.time.6months" = "Older than 6 months";
+"storage.time.1year" = "Older than 1 year";
+"storage.time.custom" = "Custom Range...";
+"storage.type.all" = "All Types";
+"storage.listSeparator" = ", ";
+"storage.sort.size" = "Largest First";
+"storage.sort.latest" = "Most Recent";
+"storage.selectAll" = "Select All";
+"storage.deselectAll" = "Deselect All";
+"storage.itemSelectionSummary" = "%1$@ selected · %2$@";
+"storage.custom.title" = "Custom Range";
+"storage.custom.from" = "From";
+"storage.custom.to" = "To";

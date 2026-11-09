@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import SwiftData
 import Darwin
 
 // MARK: - Bridge for SwiftUI → AppKit window actions
@@ -50,15 +51,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         ClipboardManager.shared.modelContainer = PasteMemoApp.sharedModelContainer
         OCRTaskCoordinator.shared.configure(modelContainer: PasteMemoApp.sharedModelContainer)
+        // Before monitoring starts: the first capture runs the retention cleanup. An unreadable
+        // store counts as existing history — when in doubt, keep everything.
+        let historyCount = try? PasteMemoApp.sharedModelContainer.mainContext.fetchCount(FetchDescriptor<ClipItem>())
+        ProManager.pinRetentionDefaultIfNeeded(
+            isExistingInstall: UserDefaults.standard.bool(forKey: "hasCompletedOnboarding") || historyCount != 0
+        )
         // GC orphaned original-image cache files (deleted/expired clips, crash orphans).
         // Runs before monitoring starts so a fresh copy can't be mistaken for an orphan.
         ClipboardManager.sweepOrphanedOriginalImageCacheFiles(in: PasteMemoApp.sharedModelContainer.mainContext)
+        ClipMerge.sweepOrphanedMergeFolders(in: PasteMemoApp.sharedModelContainer.mainContext)
         if ProManager.AUTOMATION_ENABLED {
             BuiltInRules.seedIfNeeded(context: PasteMemoApp.sharedModelContainer.mainContext)
         }
         if ClipboardManager.shared.isMonitoringEnabled {
             ClipboardManager.shared.startMonitoring()
         }
+        // Existing TIFF originals → lossless PNG (storage page switch), once launch settles.
+        OriginalImageOptimizer.shared.convertExistingAfterLaunch()
+        // Sensitive clips expire on their own clock, paused monitoring or not.
+        ClipboardManager.shared.updateSensitiveSweep()
         // 补齐早期版本没存缩略图的视频条目(源文件还在的才补)。放启动流程而非视图
         // 生命周期,登录自启的后台启动也必跑(issue #66 教训)。
         ClipboardManager.shared.backfillVideoThumbnails(in: PasteMemoApp.sharedModelContainer.mainContext)
