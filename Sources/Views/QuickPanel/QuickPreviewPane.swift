@@ -1187,30 +1187,35 @@ private struct HoverTooltip: ViewModifier {
                 showsTooltip = true
             }
             .overlay(alignment: anchorsTrailing ? .bottomTrailing : .bottom) {
-                if showsTooltip {
-                    Text(text)
-                        .font(.system(size: 11))
-                        // 外层按钮的 .foregroundStyle(.secondary) 会传进 overlay，这里显式压回
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color(nsColor: .controlBackgroundColor))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(.separator, lineWidth: 0.5)
-                        )
-                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
-                        .fixedSize()
-                        .allowsHitTesting(false)
-                        // 气泡要整体落在按钮下沿之外 gap 处，即子视图顶端 = 容器高度 + gap。
-                        // 对齐公式：子视图顶端 = 容器参考线(H) - 子视图参考线，反推子视图
-                        // 参考 = H - (H + gap) = -gap（负值常量，与气泡自身高度无关）
-                        .alignmentGuide(.bottom) { _ in -Self.gap }
-                        .transition(.opacity)
+                // alignmentGuide 必须挂在 overlay 的直接子视图（Group）上：
+                // 若写在 `if showsTooltip` 内部，@ViewBuilder 生成的 Optional 容器会吞掉
+                // 自定义对齐参考线，导致 overlay 退回默认 .bottom 对齐而把气泡直接盖在按钮上。
+                Group {
+                    if showsTooltip {
+                        Text(text)
+                            .font(.system(size: 11))
+                            // 外层按钮的 .foregroundStyle(.secondary) 会传进 overlay，这里显式压回
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(.separator, lineWidth: 0.5)
+                            )
+                            .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                            .fixedSize()
+                            .allowsHitTesting(false)
+                            .transition(.opacity)
+                    }
                 }
+                // 气泡要整体落在按钮下沿之外 gap 处，即子视图顶端 = 容器高度 + gap。
+                // 对齐公式：子视图顶端 = 容器参考线(H) - 子视图参考线，反推子视图
+                // 参考 = H - (H + gap) = -gap（负值常量，与气泡自身高度无关）
+                .alignmentGuide(.bottom) { _ in -Self.gap }
             }
             .animation(.easeOut(duration: 0.1), value: showsTooltip)
             // .help() 移除后辅助功能读不到按钮含义，用 AX label 补上
