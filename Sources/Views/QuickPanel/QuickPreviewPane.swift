@@ -115,7 +115,9 @@ struct QuickPreviewPane: View {
         if item.isDeleted || item.modelContext == nil { EmptyView() } else {
         VStack(spacing: 0) {
             if isEditableType {
+                // zIndex：tooltip 气泡向下探进正文区，要压在后面的兄弟视图之上
                 editToolbar
+                    .zIndex(1)
                 Divider().opacity(0.3)
             }
 
@@ -207,7 +209,7 @@ struct QuickPreviewPane: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .help(L10n.tr("action.cancel"))
+                .modifier(HoverTooltip(text: L10n.tr("action.cancel")))
 
                 Button {
                     saveEdit()
@@ -218,7 +220,7 @@ struct QuickPreviewPane: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .help(L10n.tr("action.save"))
+                .modifier(HoverTooltip(text: L10n.tr("action.save"), highlight: false, anchorsTrailing: true))
             } else {
                 Button {
                     applyMarkdownRichText()
@@ -230,7 +232,7 @@ struct QuickPreviewPane: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .help(L10n.tr("action.markdownToRichText"))
+                .modifier(HoverTooltip(text: L10n.tr("action.markdownToRichText")))
 
                 Button {
                     applyTextTransform(MarkdownTextConverter.toPlainText, clearsMarkdownLabel: true)
@@ -242,7 +244,7 @@ struct QuickPreviewPane: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .help(L10n.tr("action.markdownToPlain"))
+                .modifier(HoverTooltip(text: L10n.tr("action.markdownToPlain")))
 
                 Button {
                     applyTextTransform(MarkdownTextConverter.removeEmptyLines)
@@ -254,7 +256,7 @@ struct QuickPreviewPane: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .help(L10n.tr("action.removeEmptyLines"))
+                .modifier(HoverTooltip(text: L10n.tr("action.removeEmptyLines")))
 
                 Button {
                     enterEditMode()
@@ -266,7 +268,7 @@ struct QuickPreviewPane: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .contentShape(Rectangle())
-                .help(L10n.tr("action.edit"))
+                .modifier(HoverTooltip(text: L10n.tr("action.edit"), anchorsTrailing: true))
             }
         }
         .padding(.horizontal, 12)
@@ -1142,5 +1144,75 @@ struct QuickPreviewPane: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 6)
+    }
+}
+
+/// 预览栏图标按钮的悬停提示。系统 `.help()` 走 NSToolTipManager：出字前有约 1s 的
+/// 固定延迟且要求鼠标基本静止，挂起的计时还会被 SwiftUI 视图更新取消——选中条目后
+/// `allowHeavyPreview` / `cachedCodeSummary` 等异步状态陆续落地触发重渲染，悬停计时
+/// 被反复清零，表现为「有时慢、有时不出」。这里改自绘：悬停 0.3s 后在按钮下方弹出
+/// 气泡，移开即收；计时与显示都挂在视图状态上，重渲染不打断。`highlight` 给 plain
+/// 图标按钮加一圈底色，让用户看得出热区已命中（按钮只有 22pt，偏一点 tooltip 不出
+/// 时无从分辨是延迟还是没悬停上）。
+private struct HoverTooltip: ViewModifier {
+    let text: String
+    var highlight = true
+    /// 右缘对齐：最右侧按钮的居中气泡会被面板边缘裁掉（德语等长词），改右对齐只向左延展
+    var anchorsTrailing = false
+
+    @State private var isHovering = false
+    @State private var showsTooltip = false
+
+    private static let delay: Duration = .milliseconds(300)
+    /// 气泡与按钮下沿的间距
+    private static let gap: CGFloat = 5
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                if highlight {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(isHovering ? 0.08 : 0))
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: isHovering)
+            .onHover { entering in
+                isHovering = entering
+                if !entering { showsTooltip = false }
+            }
+            .task(id: isHovering) {
+                guard isHovering else { return }
+                try? await Task.sleep(for: Self.delay)
+                guard !Task.isCancelled else { return }
+                showsTooltip = true
+            }
+            .overlay(alignment: anchorsTrailing ? .bottomTrailing : .bottom) {
+                if showsTooltip {
+                    Text(text)
+                        .font(.system(size: 11))
+                        // 外层按钮的 .foregroundStyle(.secondary) 会传进 overlay，这里显式压回
+                        .foregroundStyle(.primary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(.separator, lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                        .fixedSize()
+                        .allowsHitTesting(false)
+                        // 把气泡的 bottom 参考线上移 gap：overlay 的 .bottom 对齐把参考线
+                        // 钉在按钮下沿，参考线上移后气泡整体落在按钮下方 gap 处
+                        .alignmentGuide(.bottom) { $0[.bottom] - Self.gap }
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.1), value: showsTooltip)
+            // .help() 移除后辅助功能读不到按钮含义，用 AX label 补上
+            .accessibilityLabel(text)
     }
 }
