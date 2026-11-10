@@ -1205,9 +1205,10 @@ private struct HoverTooltip: ViewModifier {
                         .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
                         .fixedSize()
                         .allowsHitTesting(false)
-                        // 把气泡的 bottom 参考线上移 gap：overlay 的 .bottom 对齐把参考线
-                        // 钉在按钮下沿，参考线上移后气泡整体落在按钮下方 gap 处
-                        .alignmentGuide(.bottom) { $0[.bottom] - Self.gap }
+                        // 气泡要整体落在按钮下沿之外 gap 处，即子视图顶端 = 容器高度 + gap。
+                        // 对齐公式：子视图顶端 = 容器参考线(H) - 子视图参考线，反推子视图
+                        // 参考 = H - (H + gap) = -gap（负值常量，与气泡自身高度无关）
+                        .alignmentGuide(.bottom) { _ in -Self.gap }
                         .transition(.opacity)
                 }
             }
